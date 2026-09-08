@@ -1,666 +1,131 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>骗子酒馆 · Liar's Tavern</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  :root {
-    --wood: #3d2b1f;
-    --wood-dark: #2a1c12;
-    --wood-light: #5a3f2a;
-    --gold: #d4a94e;
-    --gold-bright: #f0c868;
-    --cream: #f5e9d0;
-    --red: #a83232;
-    --green: #3f7a4d;
-    --dim: rgba(0,0,0,0.55);
-  }
-  body {
-    font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
-    background: radial-gradient(ellipse at 50% 30%, #4a3322 0%, #22150c 70%);
-    color: var(--cream);
-    min-height: 100vh;
-    overflow-x: hidden;
-  }
-  body::before {
-    content: "";
-    position: fixed; inset: 0; pointer-events: none;
-    background: radial-gradient(circle at 30% 20%, rgba(240,200,104,0.12), transparent 40%),
-                radial-gradient(circle at 75% 85%, rgba(240,200,104,0.08), transparent 40%);
-  }
-  .container { max-width: 1000px; margin: 0 auto; padding: 16px; }
-
-  /* ===== 进入界面 ===== */
-  .join-screen, .lobby-screen {
-    position: fixed; inset: 0; z-index: 50;
-    display: flex; align-items: center; justify-content: center;
-    background: radial-gradient(ellipse at 50% 30%, #4a3322 0%, #150d07 75%);
-  }
-  .lobby-screen { display: none; }
-  .join-card {
-    text-align: center; padding: 48px 40px;
-    background: linear-gradient(160deg, var(--wood-light), var(--wood-dark));
-    border: 2px solid var(--gold); border-radius: 18px;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.7), inset 0 0 60px rgba(0,0,0,0.4);
-    max-width: 420px; width: 90%;
-  }
-  .join-card h1 {
-    font-size: 34px; color: var(--gold-bright);
-    letter-spacing: 6px; text-shadow: 0 2px 12px rgba(0,0,0,0.8);
-  }
-  .join-card .sub { color: rgba(245,233,208,0.7); margin: 8px 0 28px; font-size: 13px; letter-spacing: 2px; }
-  .join-card input {
-    width: 100%; padding: 14px; font-size: 16px; text-align: center;
-    background: rgba(0,0,0,0.4); color: var(--cream);
-    border: 1px solid var(--gold); border-radius: 10px; outline: none;
-  }
-  .join-card input:focus { border-color: var(--gold-bright); box-shadow: 0 0 12px rgba(240,200,104,0.35); }
-  .btn {
-    cursor: pointer; border: none; border-radius: 10px;
-    font-size: 16px; font-weight: 600; padding: 13px 24px;
-    transition: transform .12s, filter .12s; letter-spacing: 2px;
-  }
-  .btn:hover { transform: translateY(-2px); filter: brightness(1.12); }
-  .btn:active { transform: translateY(0); }
-  .btn:disabled { opacity: .4; cursor: not-allowed; transform: none; filter: none; }
-  .btn-gold { background: linear-gradient(160deg, var(--gold-bright), var(--gold)); color: #2a1c12; box-shadow: 0 6px 20px rgba(212,169,78,0.4); }
-  .btn-red { background: linear-gradient(160deg, #c05050, var(--red)); color: #fff; }
-  .btn-green { background: linear-gradient(160deg, #54a06a, var(--green)); color: #fff; }
-  .btn-ghost { background: rgba(0,0,0,0.35); color: var(--cream); border: 1px solid rgba(212,169,78,0.4); }
-  .join-card .btn { width: 100%; margin-top: 18px; }
-  .hint { margin-top: 16px; font-size: 12px; color: rgba(245,233,208,0.5); }
-
-  .mode-row { display: flex; gap: 14px; margin-top: 22px; }
-  .mode-row .btn { flex: 1; }
-  .lobby-info { margin-top: 18px; font-size: 13px; color: rgba(245,233,208,0.7); }
-  .lobby-info b { color: var(--gold-bright); }
-  .mode-desc { font-size: 12px; margin-top: 6px; color: rgba(245,233,208,0.5); line-height: 1.7; }
-
-  /* ===== 游戏主界面 ===== */
-  .game-screen { display: none; }
-  .topbar {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 10px 4px 14px; flex-wrap: wrap; gap: 8px;
-  }
-  .topbar .title { font-size: 22px; color: var(--gold-bright); letter-spacing: 4px; text-shadow: 0 2px 8px rgba(0,0,0,0.7); }
-  .topbar .info { font-size: 13px; color: rgba(245,233,208,0.7); }
-  .mode-badge {
-    display: inline-block; padding: 3px 10px; border-radius: 20px;
-    background: rgba(0,0,0,0.35); border: 1px solid rgba(212,169,78,0.4);
-    font-size: 12px; color: var(--gold-bright); margin-left: 8px;
-  }
-
-  /* 桌子 */
-  .table {
-    position: relative;
-    background: radial-gradient(circle, var(--wood-light) 0%, var(--wood-dark) 75%);
-    border: 4px solid var(--gold); border-radius: 50%;
-    aspect-ratio: 1; margin: 10px auto;
-    box-shadow: 0 16px 50px rgba(0,0,0,0.7), inset 0 0 80px rgba(0,0,0,0.5);
-    display: flex; align-items: center; justify-content: center;
-  }
-  .table::after {
-    content: ""; position: absolute; inset: 8%; border-radius: 50%;
-    border: 1px dashed rgba(212,169,78,0.35);
-  }
-  .bid-center {
-    position: relative; z-index: 2; text-align: center;
-    background: var(--dim); border: 2px solid var(--gold);
-    border-radius: 14px; padding: 16px 22px; min-width: 170px;
-  }
-  .bid-center .label { font-size: 12px; color: rgba(245,233,208,0.6); letter-spacing: 2px; }
-  .bid-center .value { font-size: 30px; color: var(--gold-bright); font-weight: 700; margin: 6px 0; }
-  .bid-center .value.card-target { font-size: 24px; }
-  .bid-center .turn { font-size: 13px; color: var(--cream); }
-  .bid-center .turn b { color: var(--gold-bright); }
-
-  /* 玩家座位 */
-  .seats { position: absolute; inset: 0; z-index: 1; }
-  .seat {
-    position: absolute; width: 150px;
-    text-align: center; transform: translate(-50%, -50%);
-    padding: 8px 10px; border-radius: 12px;
-    background: var(--dim); border: 2px solid rgba(212,169,78,0.35);
-    transition: all .25s;
-  }
-  .seat.my-seat { border-color: var(--gold-bright); box-shadow: 0 0 16px rgba(240,200,104,0.35); }
-  .seat.active { border-color: #7fd08f; box-shadow: 0 0 18px rgba(127,208,143,0.5); }
-  .seat.dead { opacity: .4; }
-  .seat.dead .sname { text-decoration: line-through; }
-  .seat .sname { font-size: 14px; font-weight: 700; color: var(--cream); }
-  .seat .sname small { display: block; font-size: 10px; color: rgba(245,233,208,0.5); font-weight: 400; margin-top: 2px; }
-  .seat .sdice { font-size: 11px; color: var(--gold-bright); margin-top: 3px; }
-  .seat .stat { font-size: 11px; margin-top: 2px; }
-  .stat.win { color: #7fd08f; }
-  .stat.wait { color: rgba(245,233,208,0.5); }
-  .stat.turn { color: #7fd08f; }
-
-  /* 自己手牌区 */
-  .myarea {
-    background: linear-gradient(160deg, var(--wood), var(--wood-dark));
-    border: 2px solid rgba(212,169,78,0.5); border-radius: 14px;
-    padding: 16px; margin-top: 14px;
-  }
-  .myarea .mylabel { font-size: 12px; color: rgba(245,233,208,0.6); letter-spacing: 2px; margin-bottom: 10px; }
-  .dice-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-  .die {
-    width: 52px; height: 52px; border-radius: 12px;
-    background: linear-gradient(160deg, #fffdf4, #e8dcc0);
-    color: #3d2b1f; font-size: 30px; font-weight: 800;
-    display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.5), inset 0 -3px 6px rgba(0,0,0,0.15);
-  }
-  .card-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-  .card {
-    width: 78px; height: 104px; border-radius: 10px;
-    background: linear-gradient(160deg, #fdf8ec, #e6d7b5);
-    color: #3d2b1f; font-size: 13px; font-weight: 700;
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-    border: 3px solid transparent; cursor: pointer;
-    transition: all .12s; user-select: none;
-  }
-  .card .cf { font-size: 30px; line-height: 1; }
-  .card.selected { border-color: var(--red); transform: translateY(-6px); box-shadow: 0 8px 18px rgba(168,50,50,0.45); }
-  .card:disabled, .card.disabled { opacity: .4; cursor: not-allowed; }
-  .empty-tip { color: rgba(245,233,208,0.5); font-size: 13px; padding: 8px; }
-
-  /* 操作区 */
-  .controls {
-    display: flex; gap: 12px; align-items: center; justify-content: center;
-    margin-top: 14px; flex-wrap: wrap;
-  }
-  .ctrl-group { display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.35); padding: 8px 12px; border-radius: 10px; }
-  .ctrl-group label { font-size: 13px; color: rgba(245,233,208,0.7); }
-  .ctrl-group select {
-    background: var(--wood-dark); color: var(--cream); border: 1px solid rgba(212,169,78,0.4);
-    border-radius: 8px; padding: 8px 6px; font-size: 15px; outline: none;
-  }
-  .action-hint { width: 100%; text-align: center; font-size: 12px; color: rgba(245,233,208,0.55); margin-top: 2px; }
-
-  /* 日志 */
-  .log {
-    margin-top: 14px; background: rgba(0,0,0,0.45);
-    border: 1px solid rgba(212,169,78,0.25); border-radius: 12px;
-    height: 150px; overflow-y: auto; padding: 12px;
-    font-size: 13px; line-height: 1.9;
-  }
-  .log .msg { color: var(--cream); }
-  .log .sys { color: var(--gold-bright); }
-  .log .bad { color: #e08888; }
-  .log .good { color: #8fd0a0; }
-  .log .me { color: #8fb8e0; }
-
-  @media (max-width: 600px) {
-    .table { aspect-ratio: 1; }
-    .seat { width: 105px; }
-    .bid-center { min-width: 120px; padding: 10px 14px; }
-    .bid-center .value { font-size: 22px; }
-    .die { width: 44px; height: 44px; font-size: 24px; }
-    .card { width: 62px; height: 86px; font-size: 11px; }
-    .card .cf { font-size: 24px; }
-  }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#24170f">
+  <title>骗子酒馆 · Liar's Tavern</title>
+  <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-
-<!-- 进入界面 -->
-<div class="join-screen" id="joinScreen">
-  <div class="join-card">
-    <h1>骗子酒馆</h1>
-    <div class="sub">LIAR'S TAVERN · 骰子 · 卡牌骗术对决</div>
-    <input id="nameInput" type="text" maxlength="8" placeholder="输入你的昵称" autocomplete="off">
-    <button class="btn btn-gold" id="joinBtn">进入酒馆</button>
-    <div class="hint" id="joinHint"></div>
-  </div>
-</div>
-
-<!-- 等待大厅：选择模式 -->
-<div class="lobby-screen" id="lobbyScreen">
-  <div class="join-card">
-    <h1>骗子酒馆</h1>
-    <div class="sub">选择本局玩法</div>
-    <div class="mode-row">
-      <button class="btn btn-gold" id="startDiceBtn">🎲 骰子模式</button>
-      <button class="btn btn-green" id="startCardBtn">🃏 卡牌模式</button>
+  <section class="screen-overlay" id="joinScreen" aria-labelledby="joinTitle">
+    <div class="entry-card">
+      <h1 id="joinTitle">骗子酒馆</h1>
+      <div class="sub">LIAR'S TAVERN · 骰子与卡牌骗术对决</div>
+      <input id="nameInput" type="text" maxlength="8" placeholder="输入你的昵称" autocomplete="off" aria-label="昵称">
+      <button class="btn btn-gold" id="joinBtn" type="button">进入酒馆</button>
+      <div class="hint" id="joinHint" role="status"></div>
     </div>
-    <div class="mode-desc">骰子：5颗骰子轮流报价与质疑 · 卡牌：太阳月亮星星，恶魔牌全员轮盘</div>
-    <div class="lobby-info" id="lobbyInfo">已加入 <b>1</b>/4，等待其他玩家…</div>
-    <div class="hint" id="lobbyHint">至少 2 人才能开局</div>
-  </div>
-</div>
+  </section>
 
-<!-- 游戏主界面 -->
-<div class="game-screen" id="gameScreen">
-  <div class="container">
-    <div class="topbar">
-      <div class="title">骗子酒馆<span class="mode-badge" id="modeBadge"></span></div>
-      <div class="info" id="roomInfo">人数 0/4</div>
-    </div>
-
-    <div class="table">
-      <div class="seats" id="seats"></div>
-      <div class="bid-center">
-        <div class="label" id="centerLabel">当前报价</div>
-        <div class="value" id="centerValue">—</div>
-        <div class="turn" id="turnInfo">等待玩家加入…</div>
+  <section class="screen-overlay" id="lobbyScreen" hidden aria-labelledby="lobbyTitle">
+    <div class="entry-card">
+      <h1 id="lobbyTitle">骗子酒馆</h1>
+      <div class="sub">选择本局玩法</div>
+      <div class="mode-row">
+        <button class="btn btn-gold" id="startDiceBtn" type="button">骰子模式</button>
+        <button class="btn btn-green" id="startCardBtn" type="button">卡牌模式</button>
       </div>
+      <div class="mode-desc">骰子：报价、摘飞与真假豹子<br>卡牌：目标牌、魔术师与恶魔轮盘</div>
+      <div class="lobby-info" id="lobbyInfo">已加入 <b>1</b>/4，等待其他玩家…</div>
+      <div class="hint" id="lobbyHint">至少 2 人才能开局</div>
     </div>
+  </section>
 
-    <div class="myarea">
-      <div class="mylabel"><span id="myName"></span> · <span id="myAreaLabel">我的手牌</span></div>
-      <div class="dice-row" id="myDiceRow" style="display:none"></div>
-      <div class="card-row" id="myCardRow" style="display:none"></div>
-      <div id="myEmptyTip" class="empty-tip" style="display:none">尚未开局，等待房主选择模式…</div>
+  <div class="game-screen" id="gameScreen" hidden>
+    <div class="container">
+      <header class="topbar">
+        <div class="brand">
+          <div class="title">骗子酒馆</div>
+          <span class="mode-badge" id="modeBadge"></span>
+        </div>
+        <div class="top-actions">
+          <span class="room-info" id="roomInfo">房间 — · 0/4</span>
+          <button class="icon-btn" id="rulesBtn" type="button">规则</button>
+          <button class="icon-btn" id="resultsBtn" type="button" hidden>结算</button>
+          <button class="icon-btn" id="appearanceBtn" type="button" aria-expanded="false" aria-controls="appearancePanel">外观</button>
+          <div class="appearance-panel" id="appearancePanel" hidden>
+            <div class="appearance-title">全窗口摸鱼遮罩</div>
+            <label>窗口色调 <input id="bgColorInput" type="color" value="#23382f" aria-label="全窗口色调"></label>
+            <label>遮罩透明度 <span><input id="bgOpacityInput" type="range" min="0" max="85" value="0" aria-label="全窗口遮罩透明度"> <output id="bgOpacityOutput">0%</output></span></label>
+            <label>窗口明度 <span><input id="brightnessInput" type="range" min="55" max="125" value="100" aria-label="全窗口明度"> <output id="brightnessOutput">100%</output></span></label>
+          </div>
+        </div>
+      </header>
+
+      <main class="game-layout">
+        <section class="table-pane" aria-label="酒桌">
+          <div class="table">
+            <div class="seats" id="seats"></div>
+            <div class="bid-center">
+              <div class="label" id="centerLabel">当前报价</div>
+              <div class="value" id="centerValue">—</div>
+              <div class="turn" id="turnInfo">等待玩家加入…</div>
+              <span class="status-chip wild-status" id="wildStatus">1 可百搭</span>
+              <button class="btn btn-ghost rematch-btn" id="returnLobbyBtn" type="button" hidden>返回大厅</button>
+            </div>
+          </div>
+          <div class="round-reveal" id="roundReveal" aria-live="polite"></div>
+        </section>
+
+        <aside class="side-rail">
+          <section class="panel myarea">
+            <div class="mylabel"><span id="myName"></span> · <span id="myAreaLabel">我的手牌</span></div>
+            <div class="dice-row" id="myDiceRow" hidden></div>
+            <div class="card-row" id="myCardRow" hidden></div>
+            <div id="myEmptyTip" class="empty-tip">尚未开局，等待选择模式…</div>
+          </section>
+
+          <section class="panel controls" id="diceControls" hidden aria-label="骰子操作">
+            <div class="ctrl-group"><label for="cntSel">数量</label><select id="cntSel"></select></div>
+            <div class="ctrl-group">
+              <label for="faceSel">点数</label>
+              <select id="faceSel"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option></select>
+            </div>
+            <div class="bid-mode-group">
+              <button class="mode-toggle" id="exactBtn" type="button" aria-pressed="false">摘 · 1仅算1</button>
+              <button class="mode-toggle" id="flyBtn" type="button" aria-pressed="false">飞 · 恢复百搭</button>
+            </div>
+            <button class="btn btn-gold" id="bidBtn" type="button">报价</button>
+            <button class="btn btn-red" id="doubtBtn" type="button">质疑</button>
+            <div class="action-hint" id="diceHint">首报可自由选择；喊 1 会自动摘。</div>
+          </section>
+
+          <section class="panel controls" id="cardControls" hidden aria-label="卡牌操作">
+            <button class="btn btn-gold" id="playBtn" type="button">打出选中卡牌</button>
+            <button class="btn btn-red" id="doubtCardBtn" type="button">质疑上家</button>
+            <div class="action-hint" id="cardHint">选中 1–3 张牌后出牌，恶魔只能单出。</div>
+          </section>
+
+          <section class="panel log-panel">
+            <div class="panel-head"><div class="panel-title">对局记录</div><div class="connection-state" id="connectionState">已连接</div></div>
+            <div class="log" id="log" role="log" aria-live="polite"></div>
+          </section>
+        </aside>
+      </main>
     </div>
-
-    <div class="controls" id="diceControls">
-      <div class="ctrl-group">
-        <label>数量</label>
-        <select id="cntSel"></select>
-      </div>
-      <div class="ctrl-group">
-        <label>点数</label>
-        <select id="faceSel">
-          <option value="1">1（百搭）</option>
-          <option value="2">2</option>
-          <option value="3">3</option>
-          <option value="4">4</option>
-          <option value="5">5</option>
-          <option value="6">6</option>
-        </select>
-      </div>
-      <button class="btn btn-gold" id="bidBtn">报价</button>
-      <button class="btn btn-red" id="doubtBtn">质疑！</button>
-    </div>
-
-    <div class="controls" id="cardControls" style="display:none">
-      <button class="btn btn-gold" id="playBtn">打出选中卡牌</button>
-      <button class="btn btn-green" id="trustBtn">相信上家</button>
-      <button class="btn btn-red" id="doubtCardBtn">质疑上家</button>
-      <div class="action-hint" id="cardHint">点击手牌选中，出牌需宣称为目标牌（1~3张，恶魔只能单出）</div>
-    </div>
-
-    <div class="log" id="log"></div>
   </div>
-</div>
 
-<script src="/socket.io/socket.io.js"></script>
-<script>
-const socket = io();
+  <div class="rules-overlay" id="rulesOverlay" aria-hidden="true">
+    <section class="rules-dialog" role="dialog" aria-modal="true" aria-labelledby="rulesTitle">
+      <header class="rules-head"><h2 id="rulesTitle">游戏规则</h2><button class="close-btn" id="rulesCloseBtn" type="button" aria-label="关闭规则">×</button></header>
+      <div class="rules-body" id="rulesBody"></div>
+    </section>
+  </div>
+  <div class="leaderboard-overlay" id="leaderboardOverlay" aria-hidden="true">
+    <section class="leaderboard-dialog" role="dialog" aria-modal="true" aria-labelledby="leaderboardTitle">
+      <header class="rules-head"><h2 id="leaderboardTitle">本局结算</h2><button class="close-btn" id="leaderboardCloseBtn" type="button" aria-label="关闭结算">×</button></header>
+      <div class="leaderboard-body">
+        <div class="leaderboard-summary" id="leaderboardSummary"></div>
+        <div class="leaderboard-list" id="leaderboardList"></div>
+        <button class="btn btn-gold leaderboard-lobby-btn" id="leaderboardLobbyBtn" type="button">返回大厅</button>
+      </div>
+    </section>
+  </div>
+  <div class="toast-layer" id="toastLayer" aria-live="assertive"></div>
+  <div class="window-filter" id="windowFilter" aria-hidden="true"></div>
 
-// ===== 元素 =====
-const joinScreen = document.getElementById('joinScreen');
-const lobbyScreen = document.getElementById('lobbyScreen');
-const gameScreen = document.getElementById('gameScreen');
-const nameInput = document.getElementById('nameInput');
-const joinBtn = document.getElementById('joinBtn');
-const joinHint = document.getElementById('joinHint');
-const lobbyInfo = document.getElementById('lobbyInfo');
-const lobbyHint = document.getElementById('lobbyHint');
-const startDiceBtn = document.getElementById('startDiceBtn');
-const startCardBtn = document.getElementById('startCardBtn');
-const modeBadge = document.getElementById('modeBadge');
-const roomInfo = document.getElementById('roomInfo');
-const seatsEl = document.getElementById('seats');
-const centerLabel = document.getElementById('centerLabel');
-const centerValue = document.getElementById('centerValue');
-const turnInfo = document.getElementById('turnInfo');
-const myName = document.getElementById('myName');
-const myAreaLabel = document.getElementById('myAreaLabel');
-const myDiceRow = document.getElementById('myDiceRow');
-const myCardRow = document.getElementById('myCardRow');
-const myEmptyTip = document.getElementById('myEmptyTip');
-const diceControls = document.getElementById('diceControls');
-const cardControls = document.getElementById('cardControls');
-const cardHint = document.getElementById('cardHint');
-const cntSel = document.getElementById('cntSel');
-const faceSel = document.getElementById('faceSel');
-const bidBtn = document.getElementById('bidBtn');
-const doubtBtn = document.getElementById('doubtBtn');
-const playBtn = document.getElementById('playBtn');
-const trustBtn = document.getElementById('trustBtn');
-const doubtCardBtn = document.getElementById('doubtCardBtn');
-const logEl = document.getElementById('log');
-
-let myId = null;
-let myNameText = '';
-let myDice = [];
-let myCards = [];
-let selectedCards = [];
-let state = null;
-let joined = false;
-
-const FACE_GLYPH = { 1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅' };
-const CARD_META = {
-  sun:   { cn: '太阳',  emoji: '☀️' },
-  moon:  { cn: '月亮',  emoji: '🌙' },
-  star:  { cn: '星星',  emoji: '⭐' },
-  joker: { cn: '魔术师', emoji: '🎩' },
-  devil: { cn: '恶魔',  emoji: '😈' }
-};
-const MODE_NAME = { dice: '骰子模式', card: '卡牌模式' };
-
-// 数量选择器初始化（最多30）
-for (let i = 1; i <= 30; i++) {
-  const o = document.createElement('option');
-  o.value = i; o.textContent = i;
-  cntSel.appendChild(o);
-}
-
-// ===== 日志 =====
-function log(text, cls = 'msg') {
-  const div = document.createElement('div');
-  div.className = cls;
-  div.textContent = text;
-  logEl.appendChild(div);
-  logEl.scrollTop = logEl.scrollHeight;
-}
-
-function myIdx() {
-  if (!state) return -1;
-  return state.players.findIndex(p => p.id === myId);
-}
-
-function isMyTurn() {
-  const i = myIdx();
-  return state && i > -1 && i === state.turnIndex && !state.gameOver && state.players[i].alive;
-}
-
-// ===== 界面切换 =====
-function showAppropriateScreen() {
-  if (!state) return;
-  if (state.gameMode) {
-    lobbyScreen.style.display = 'none';
-    gameScreen.style.display = 'block';
-  } else {
-    gameScreen.style.display = 'none';
-    lobbyScreen.style.display = 'flex';
-    lobbyInfo.innerHTML = `已加入 <b>${state.players.length}</b>/4` + (state.players.length >= 2 ? '，可以开局了' : '，等待其他玩家…');
-  }
-}
-
-// ===== 渲染座位 =====
-function renderSeats() {
-  seatsEl.innerHTML = '';
-  if (!state || state.players.length === 0) {
-    roomInfo.textContent = '人数 0/4';
-    return;
-  }
-  roomInfo.textContent = `人数 ${state.players.length}/4`;
-  const n = state.players.length;
-  state.players.forEach((p, i) => {
-    const seat = document.createElement('div');
-    seat.className = 'seat';
-    if (p.id === myId) seat.classList.add('my-seat');
-    if (!p.alive) seat.classList.add('dead');
-    if (state.turnIndex === i && !state.gameOver) seat.classList.add('active');
-
-    // 座位定位：玩家0在下，其余顺时针
-    const angle = (Math.PI * 2 / n) * i - Math.PI / 2;
-    const r = 40;
-    seat.style.left = (50 + r * Math.cos(angle)) + '%';
-    seat.style.top = (50 + r * Math.sin(angle)) + '%';
-
-    let statText = '';
-    if (state.gameOver && p.alive) statText = '<div class="stat win">🏆 胜者</div>';
-    else if (!p.alive) statText = '<div class="stat wait">💀 已出局</div>';
-    else if (state.turnIndex === i) statText = '<div class="stat turn">▶ 思考中</div>';
-    else statText = '<div class="stat wait">等待中</div>';
-
-    const countText = state.gameMode === 'card'
-      ? `<div class="sdice">🃏 剩余 ${(p.cards || []).length} 张</div>`
-      : `<div class="sdice">🎲 剩余 ${(p.dice || []).length} 颗</div>`;
-
-    seat.innerHTML = `
-      <div class="sname">${p.name}${p.id === myId ? '（我）' : ''}<small>${p.alive ? '存活' : '出局'}</small></div>
-      ${countText}
-      ${statText}
-    `;
-    seatsEl.appendChild(seat);
-  });
-}
-
-// ===== 桌面中央 =====
-function renderCenter() {
-  if (!state) { centerValue.textContent = '—'; turnInfo.textContent = '等待玩家加入…'; return; }
-  if (state.gameMode === 'card') {
-    centerLabel.textContent = '本局目标牌';
-    if (state.targetCard && CARD_META[state.targetCard]) {
-      const m = CARD_META[state.targetCard];
-      centerValue.textContent = m.emoji + ' ' + m.cn;
-      centerValue.classList.add('card-target');
-    } else {
-      centerValue.textContent = '—';
-      centerValue.classList.add('card-target');
-    }
-    if (state.gameOver) {
-      const win = state.players.find(p => p.alive);
-      turnInfo.innerHTML = win ? `🎉 游戏结束！<b>${win.name}</b> 获胜！` : '🎉 游戏结束！';
-    } else if (state.players.length > 0) {
-      const cur = state.players[state.turnIndex];
-      turnInfo.innerHTML = cur.id === myId ? '▶ <b>轮到你</b>了！' : `▶ 轮到 <b>${cur.name}</b>`;
-    }
-    return;
-  }
-  // 骰子模式
-  centerLabel.textContent = '当前报价';
-  centerValue.classList.remove('card-target');
-  if (state.currentBid) {
-    centerValue.textContent = `${state.currentBid[0]} 个 ${state.currentBid[1]}`;
-    faceSel.value = String(state.currentBid[1]);
-    cntSel.value = String(Math.max(1, state.currentBid[0]));
-  } else {
-    centerValue.textContent = '—';
-  }
-  if (state.gameOver) {
-    const win = state.players.find(p => p.alive);
-    turnInfo.innerHTML = win ? `🎉 游戏结束！<b>${win.name}</b> 获胜！` : '🎉 游戏结束！';
-  } else if (state.players.length > 0) {
-    const cur = state.players[state.turnIndex];
-    turnInfo.innerHTML = cur.id === myId ? '▶ <b>轮到你</b>了！' : `▶ 轮到 <b>${cur.name}</b>`;
-  }
-}
-
-// ===== 渲染我的手牌区 =====
-function renderMyArea() {
-  const inGame = state && state.gameMode;
-  const i = myIdx();
-  const alive = i > -1 && state.players[i].alive;
-  myDiceRow.style.display = 'none';
-  myCardRow.style.display = 'none';
-  myEmptyTip.style.display = 'none';
-
-  if (!inGame) {
-    myEmptyTip.style.display = 'block';
-    return;
-  }
-  if (state.gameMode === 'dice') {
-    myAreaLabel.textContent = '我的骰子';
-    myDiceRow.style.display = 'flex';
-    myDiceRow.innerHTML = '';
-    myDice.forEach(d => {
-      const die = document.createElement('div');
-      die.className = 'die';
-      die.textContent = FACE_GLYPH[d] || d;
-      myDiceRow.appendChild(die);
-    });
-  } else {
-    myAreaLabel.textContent = '我的手牌';
-    myCardRow.style.display = 'flex';
-    myCardRow.innerHTML = '';
-    if (!alive) {
-      myCardRow.style.display = 'none';
-      myEmptyTip.textContent = '你已出局';
-      myEmptyTip.style.display = 'block';
-      return;
-    }
-    if (!myCards || myCards.length === 0) {
-      myCardRow.style.display = 'none';
-      myEmptyTip.textContent = '你没有手牌了（等待新一轮发牌）';
-      myEmptyTip.style.display = 'block';
-      return;
-    }
-    myCards.forEach((c, idx) => {
-      const meta = CARD_META[c] || { cn: c, emoji: '❔' };
-      const card = document.createElement('div');
-      card.className = 'card' + (selectedCards.includes(idx) ? ' selected' : '');
-      card.innerHTML = `<div class="cf">${meta.emoji}</div><div>${meta.cn}</div>`;
-      card.addEventListener('click', () => {
-        if (!isMyTurn()) { log('还没轮到你', 'sys'); return; }
-        const pos = selectedCards.indexOf(idx);
-        if (pos > -1) selectedCards.splice(pos, 1);
-        else selectedCards.push(idx);
-        renderMyArea();
-        updateControls();
-      });
-      myCardRow.appendChild(card);
-    });
-  }
-}
-
-// ===== 更新操作区 =====
-function updateControls() {
-  if (!state || !joined) {
-    bidBtn.disabled = doubtBtn.disabled = true;
-    playBtn.disabled = trustBtn.disabled = doubtCardBtn.disabled = true;
-    return;
-  }
-  const myTurn = isMyTurn();
-  if (state.gameMode === 'card') {
-    diceControls.style.display = 'none';
-    cardControls.style.display = 'flex';
-    playBtn.disabled = !myTurn || selectedCards.length === 0;
-    trustBtn.disabled = !myTurn || !state.lastPlay;
-    doubtCardBtn.disabled = !myTurn || !state.lastPlay;
-    if (myTurn && state.lastPlay) {
-      cardHint.textContent = '上家已出牌，你可以「相信」或「质疑」';
-    } else if (myTurn) {
-      cardHint.textContent = '点击手牌选中后出牌（1~3张，恶魔只能单出）';
-    } else {
-      cardHint.textContent = '等待你的回合…';
-    }
-  } else if (state.gameMode === 'dice') {
-    diceControls.style.display = 'flex';
-    cardControls.style.display = 'none';
-    bidBtn.disabled = !myTurn;
-    doubtBtn.disabled = !myTurn || !state.currentBid;
-  } else {
-    diceControls.style.display = 'none';
-    cardControls.style.display = 'none';
-  }
-}
-
-// ===== Socket 事件 =====
-socket.on('connect', () => {
-  log('已连接服务器', 'sys');
-});
-
-socket.on('state', (s) => {
-  state = s;
-  if (state.gameMode) {
-    modeBadge.textContent = MODE_NAME[state.gameMode] || '';
-  } else {
-    modeBadge.textContent = '';
-  }
-  showAppropriateScreen();
-  renderSeats();
-  renderCenter();
-  renderMyArea();
-  updateControls();
-});
-
-socket.on('myDice', (dice) => {
-  myDice = dice;
-  log('🎲 你获得了骰子：' + dice.join(' '), 'me');
-  renderMyArea();
-});
-
-socket.on('myCards', (cards) => {
-  myCards = cards;
-  selectedCards = [];
-  log('🃏 你获得了新手牌：' + cards.map(c => CARD_META[c] ? CARD_META[c].cn : c).join('、'), 'me');
-  renderMyArea();
-  updateControls();
-});
-
-socket.on('newCardRound', (data) => {
-  const m = CARD_META[data.target];
-  log(`🃏 新一轮：本局目标牌是 ${m ? m.emoji + m.cn : data.target}`, 'sys');
-});
-
-socket.on('revealCards', (data) => {
-  const list = (data.cards || []).map(c => CARD_META[c] ? CARD_META[c].cn : c).join('、');
-  log(`🃏 ${data.playerIdx > -1 && state && state.players[data.playerIdx] ? state.players[data.playerIdx].name : '上家'}打出：${list}`, 'sys');
-});
-
-socket.on('msg', (text) => {
-  let cls = 'msg';
-  if (text.includes('出局') || text.includes('中弹') || text.includes('撒谎')) cls = 'bad';
-  else if (text.includes('游戏结束') || text.includes('获胜') || text.includes('空枪') || text.includes('属实')) cls = 'good';
-  else if (text.includes('加入') || text.includes('离开') || text.includes('开始') || text.includes('新一轮') || text.includes('相信')) cls = 'sys';
-  log(text, cls);
-});
-
-socket.on('disconnect', () => {
-  log('与服务器断开连接，请刷新页面', 'bad');
-  bidBtn.disabled = doubtBtn.disabled = playBtn.disabled = trustBtn.disabled = doubtCardBtn.disabled = true;
-});
-
-// ===== 加入 =====
-function join() {
-  const name = nameInput.value.trim();
-  if (!name) { joinHint.textContent = '请输入昵称'; return; }
-  joinHint.textContent = '正在进入酒馆…';
-  myNameText = name;
-  myName.textContent = name;
-  socket.emit('join', name);
-  joined = true;
-}
-joinBtn.addEventListener('click', join);
-nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') join(); });
-
-socket.on('msg', function guardJoin(text) {
-  if (text.includes('房间已满')) {
-    joinHint.textContent = '房间已满，最多4人，稍后再试';
-  }
-});
-
-// ===== 开局 =====
-startDiceBtn.addEventListener('click', () => {
-  lobbyHint.textContent = '正在开局…';
-  socket.emit('startGame', 'dice');
-});
-startCardBtn.addEventListener('click', () => {
-  lobbyHint.textContent = '正在开局…';
-  socket.emit('startGame', 'card');
-});
-
-// ===== 骰子操作 =====
-bidBtn.addEventListener('click', () => {
-  const cnt = parseInt(cntSel.value, 10);
-  const face = parseInt(faceSel.value, 10);
-  socket.emit('bid', cnt, face);
-});
-doubtBtn.addEventListener('click', () => {
-  socket.emit('doubt');
-});
-
-// ===== 卡牌操作 =====
-playBtn.addEventListener('click', () => {
-  if (selectedCards.length === 0) return;
-  const playList = selectedCards.map(i => myCards[i]);
-  socket.emit('playCards', playList);
-  selectedCards = [];
-});
-trustBtn.addEventListener('click', () => {
-  socket.emit('trustCard');
-});
-doubtCardBtn.addEventListener('click', () => {
-  socket.emit('doubtCard');
-});
-</script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
 </body>
 </html>

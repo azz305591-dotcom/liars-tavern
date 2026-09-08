@@ -1,45 +1,57 @@
+'use strict';
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const {
+  checkDiceBid,
+  classifyDiceHand,
+  rerollDice,
+  validateBidTransition
+} = require('./game-logic');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, { cors: { origin: '*' } });
 
 app.use(express.static('public'));
 
-// 游戏常量
 const MAX_PLAYER = 4;
-const CARD_TYPES = ["sun", "moon", "star"];
-const CARD_NAME_MAP = { sun: "太阳", moon: "月亮", star: "星星", joker: "魔术师", devil: "恶魔" };
+const CARD_TYPES = ['sun', 'moon', 'star'];
+const ROOM_CODE = process.env.ROOM_CODE || String(Math.floor(1000 + Math.random() * 9000));
 
-let gameState = {
-  players: [],
-  gameMode: null,   // "dice" 骰子 / "card" 卡牌 / null 未开局
-  currentBid: null, // 骰子模式：[数量, 点数]
-  turnIndex: 0,
-  gameOver: false,
-  targetCard: null, // 卡牌模式：本局目标牌
-  lastPlay: null    // 卡牌模式：{ playerIdx, cards } 上家打出的牌
-};
-
-// ========== 工具函数 ==========
-
-function createDice() {
-  return Array.from({ length: 5 }, () => Math.floor(Math.random() * 6) + 1);
+function emptyStats() {
+  return {
+    bids: 0,
+    doubts: 0,
+    successfulDoubts: 0,
+    failedDoubts: 0,
+    roulettePulls: 0,
+    cardsPlayed: 0
+  };
 }
 
-// 构造一副牌：太阳6 月亮6 星星6 + 魔术师2
+let gameState = {
+  roomCode: ROOM_CODE,
+  players: [],
+  gameMode: null,
+  currentBid: null,
+  onesWild: true,
+  lastBidAction: null,
+  turnIndex: 0,
+  gameOver: false,
+  targetCard: null,
+  lastPlay: null,
+  eliminationCounter: 0
+};
+
 function buildDeck() {
   const deck = [];
-  for (let i = 0; i < 6; i++) deck.push("sun");
-  for (let i = 0; i < 6; i++) deck.push("moon");
-  for (let i = 0; i < 6; i++) deck.push("star");
-  deck.push("joker");
-  deck.push("joker");
-  for (let i = deck.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [deck[i], deck[j]] = [deck[j], deck[i]];
+  for (let index = 0; index < 6; index += 1) deck.push('sun', 'moon', 'star');
+  deck.push('joker', 'joker', 'devil', 'devil');
+  for (let index = deck.length - 1; index > 0; index -= 1) {
+    const target = Math.floor(Math.random() * (index + 1));
+    [deck[index], deck[target]] = [deck[target], deck[index]];
   }
   return deck;
 }
@@ -49,351 +61,423 @@ function generateCardHand() {
 }
 
 function aliveCount() {
-  return gameState.players.filter(p => p.alive).length;
+  return gameState.players.filter((player) => player.alive).length;
 }
 
-function getAllDice() {
-  const arr = [];
-  gameState.players.forEach(p => { if (p.alive) arr.push(...p.dice); });
-  return arr;
+function publicState() {
+  return {
+    roomCode: gameState.roomCode,
+    gameMode: gameState.gameMode,
+    currentBid: gameState.currentBid,
+    onesWild: gameState.onesWild,
+    lastBidAction: gameState.lastBidAction,
+    turnIndex: gameState.turnIndex,
+    gameOver: gameState.gameOver,
+    targetCard: gameState.targetCard,
+    lastPlay: gameState.lastPlay ? { playerIdx: gameState.lastPlay.playerIdx, count: gameState.lastPlay.cards.length } : null,
+    players: gameState.players.map((player) => ({
+      id: player.id,
+      name: player.name,
+      alive: player.alive,
+      diceCount: player.dice.length,
+      cardCount: player.cards.length
+    }))
+  };
 }
 
-// 骰子报价校验，1 百搭
-function checkDiceBid(bidCnt, bidFace) {
-  const all = getAllDice();
-  let total = 0;
-  all.forEach(d => { if (d === 1 || d === bidFace) total++; });
-  return total >= bidCnt;
+function emitState() {
+  io.emit('state', publicState());
 }
 
-// 报价递增校验
-function isValidBid(oldCnt, oldFace, newCnt, newFace) {
-  if (newCnt > oldCnt) return true;
-  if (newCnt === oldCnt && newFace > oldFace) return true;
-  return false;
+function privateSocket(player) {
+  return io.sockets.sockets.get(player.id);
 }
 
-// 卡牌出牌校验：恶魔单出合法；其余须为目标牌或魔术师
-function checkCardPlay(playedCards, target) {
-  const hasDevil = playedCards.includes("devil");
-  if (hasDevil && playedCards.length !== 1) {
-    return { valid: false, reason: "恶魔牌只能单独一张打出" };
+function nextAliveIdx(fromIndex) {
+  const total = gameState.players.length;
+  if (!total) return -1;
+  let index = ((fromIndex + 1) % total + total) % total;
+  for (let step = 0; step < total; step += 1) {
+    if (gameState.players[index].alive) return index;
+    index = (index + 1) % total;
   }
-  if (hasDevil) return { valid: true, isDevil: true };
-  for (const c of playedCards) {
-    if (c !== target && c !== 'joker') {
-      return { valid: false, reason: "手牌含有非目标牌，撒谎!" };
-    }
-  }
-  return { valid: true, isDevil: false };
+  return -1;
 }
 
-// 俄罗斯轮盘：6 弹仓 1 实弹
-function roulette(victimIdx) {
-  const bulletPos = Math.floor(Math.random() * 6);
-  const isShot = bulletPos === 0;
-  if (isShot) gameState.players[victimIdx].alive = false;
-  if (aliveCount() <= 1) gameState.gameOver = true;
-  return { isShot, victimIdx };
-}
-
-// 下一位存活玩家下标（从 fromIdx 之后找）
-function nextAliveIdx(fromIdx) {
-  const n = gameState.players.length;
-  let idx = (fromIdx + 1) % n;
-  for (let step = 0; step < n; step++) {
-    if (gameState.players[idx].alive) return idx;
-    idx = (idx + 1) % n;
-  }
-  return -1; // 全员阵亡
-}
-
-// 上一位存活玩家下标（质疑对象）
-function prevAliveIdx(fromIdx) {
-  const n = gameState.players.length;
-  let idx = (fromIdx - 1 + n) % n;
-  for (let step = 0; step < n; step++) {
-    if (gameState.players[idx].alive) return idx;
-    idx = (idx - 1 + n) % n;
+function prevAliveIdx(fromIndex) {
+  const total = gameState.players.length;
+  if (!total) return -1;
+  let index = ((fromIndex - 1) % total + total) % total;
+  for (let step = 0; step < total; step += 1) {
+    if (gameState.players[index].alive) return index;
+    index = (index - 1 + total) % total;
   }
   return -1;
 }
 
 function nextTurn() {
   if (gameState.gameOver || aliveCount() <= 1) return;
-  const nx = nextAliveIdx(gameState.turnIndex);
-  if (nx >= 0) gameState.turnIndex = nx;
+  const next = nextAliveIdx(gameState.turnIndex);
+  if (next >= 0) gameState.turnIndex = next;
 }
 
-// 检查是否分出胜负，返回是否已结束
-function checkGameOver() {
-  if (aliveCount() <= 1) {
-    gameState.gameOver = true;
-    const win = gameState.players.find(p => p.alive);
-    if (win) io.emit('msg', `🎉 游戏结束！${win.name}获胜！`);
-    else io.emit('msg', '🎉 全员阵亡，本局平局');
-    return true;
-  }
-  return false;
-}
-
-// 开启新一轮卡牌：随机目标牌 + 存活玩家重发 5 张
-function startNewCardRound() {
-  const t = CARD_TYPES[Math.floor(Math.random() * 3)];
-  gameState.targetCard = t;
-  gameState.lastPlay = null;
-  gameState.currentBid = null;
-  gameState.players.forEach(p => { if (p.alive) p.cards = generateCardHand(); });
-  io.emit('newCardRound', { target: t });
-  gameState.players.forEach(p => {
-    if (p.alive) {
-      const s = io.sockets.sockets.get(p.id);
-      if (s) s.emit('myCards', p.cards);
-    }
+function resetPlayersForMatch() {
+  gameState.eliminationCounter = 0;
+  gameState.players.forEach((player) => {
+    player.alive = true;
+    player.dice = [];
+    player.cards = [];
+    player.eliminatedAt = null;
+    player.stats = emptyStats();
   });
 }
 
-// ========== Socket 事件 ==========
+function rankings() {
+  const ordered = gameState.players.slice().sort((left, right) => {
+    if (left.alive !== right.alive) return left.alive ? -1 : 1;
+    if (!left.alive && left.eliminatedAt !== right.eliminatedAt) return (right.eliminatedAt || 0) - (left.eliminatedAt || 0);
+    if (left.stats.successfulDoubts !== right.stats.successfulDoubts) return right.stats.successfulDoubts - left.stats.successfulDoubts;
+    const leftActions = left.stats.bids + left.stats.cardsPlayed;
+    const rightActions = right.stats.bids + right.stats.cardsPlayed;
+    return rightActions - leftActions;
+  });
+  return ordered.map((player, index) => ({
+    rank: index + 1,
+    id: player.id,
+    name: player.name,
+    alive: player.alive,
+    bids: player.stats.bids,
+    cardsPlayed: player.stats.cardsPlayed,
+    doubts: player.stats.doubts,
+    successfulDoubts: player.stats.successfulDoubts,
+    roulettePulls: player.stats.roulettePulls
+  }));
+}
+
+function finishIfNeeded() {
+  if (aliveCount() > 1) return false;
+  if (!gameState.gameOver) {
+    gameState.gameOver = true;
+    const winner = gameState.players.find((player) => player.alive);
+    io.emit('msg', winner ? `游戏结束，${winner.name} 获胜！` : '游戏结束，本局无人幸存。');
+    io.emit('gameOver', { winnerId: winner ? winner.id : null, rankings: rankings() });
+  }
+  return true;
+}
+
+function roulette(victimIndex) {
+  const victim = gameState.players[victimIndex];
+  victim.stats.roulettePulls += 1;
+  const isShot = Math.floor(Math.random() * 6) === 0;
+  if (isShot && victim.alive) {
+    victim.alive = false;
+    gameState.eliminationCounter += 1;
+    victim.eliminatedAt = gameState.eliminationCounter;
+  }
+  const result = { isShot, victimIdx: victimIndex, victimId: victim.id, victimName: victim.name };
+  io.emit('rouletteResult', result);
+  return result;
+}
+
+function startNewDiceRound(reason = 'start') {
+  gameState.players = rerollDice(gameState.players);
+  gameState.currentBid = null;
+  gameState.onesWild = true;
+  gameState.lastBidAction = null;
+  gameState.players.forEach((player) => {
+    if (!player.alive) return;
+    const socket = privateSocket(player);
+    if (socket) socket.emit('myDice', { dice: player.dice, reason });
+  });
+  io.emit('diceRoundStarted', { reason });
+}
+
+function startNewCardRound() {
+  gameState.targetCard = CARD_TYPES[Math.floor(Math.random() * CARD_TYPES.length)];
+  gameState.lastPlay = null;
+  gameState.currentBid = null;
+  gameState.players.forEach((player) => {
+    if (player.alive) player.cards = generateCardHand();
+  });
+  io.emit('newCardRound', { target: gameState.targetCard });
+  gameState.players.forEach((player) => {
+    if (!player.alive) return;
+    const socket = privateSocket(player);
+    if (socket) socket.emit('myCards', player.cards);
+  });
+}
+
+function checkCardPlay(playedCards, target) {
+  const hasDevil = playedCards.includes('devil');
+  if (hasDevil && playedCards.length !== 1) return { valid: false, reason: '恶魔牌只能单独打出' };
+  if (hasDevil) return { valid: true, isDevil: true };
+  const valid = playedCards.every((card) => card === target || card === 'joker');
+  return valid ? { valid: true, isDevil: false } : { valid: false, reason: '手牌含有非目标牌' };
+}
+
+function resetToLobby() {
+  gameState.gameMode = null;
+  gameState.currentBid = null;
+  gameState.onesWild = true;
+  gameState.lastBidAction = null;
+  gameState.turnIndex = 0;
+  gameState.gameOver = false;
+  gameState.targetCard = null;
+  gameState.lastPlay = null;
+  gameState.players.forEach((player) => {
+    player.alive = true;
+    player.dice = [];
+    player.cards = [];
+  });
+}
 
 io.on('connection', (socket) => {
-  console.log("玩家连接", socket.id);
+  console.log('玩家连接', socket.id);
 
-  // 加入房间
   socket.on('join', (name) => {
-    if (gameState.players.length >= MAX_PLAYER) {
-      socket.emit('msg', "房间已满，最多4人");
+    if (gameState.gameMode) {
+      socket.emit('msg', '对局进行中，请等待下一局。');
       return;
     }
+    if (gameState.players.length >= MAX_PLAYER) {
+      socket.emit('msg', '房间已满，最多 4 人。');
+      return;
+    }
+    if (gameState.players.some((player) => player.id === socket.id)) return;
     const cleanName = String(name || '').trim().slice(0, 8) || '匿名';
-    if (gameState.players.some(p => p.id === socket.id)) return;
-    gameState.players.push({
+    const player = {
       id: socket.id,
       name: cleanName,
       dice: [],
       cards: [],
-      alive: true
-    });
-    io.emit('msg', `【${cleanName}】加入游戏`);
-    io.emit('state', gameState);
+      alive: true,
+      eliminatedAt: null,
+      stats: emptyStats()
+    };
+    gameState.players.push(player);
+    socket.emit('joined', { id: socket.id, name: cleanName, roomCode: gameState.roomCode });
+    io.emit('msg', `${cleanName} 加入游戏。`);
+    emitState();
   });
 
-  // 开局选择模式（需 >=2 人）
   socket.on('startGame', (mode) => {
     if (mode !== 'dice' && mode !== 'card') return;
+    if (!gameState.players.some((player) => player.id === socket.id)) return;
     if (gameState.players.length < 2) {
-      socket.emit('msg', "至少2人才能开局");
+      socket.emit('msg', '至少 2 人才能开局。');
       return;
     }
     if (gameState.gameMode) {
-      socket.emit('msg', "本局已开始，等待本局结束");
+      socket.emit('msg', '本局已经开始。');
       return;
     }
+
+    resetPlayersForMatch();
     gameState.gameMode = mode;
     gameState.turnIndex = 0;
     gameState.gameOver = false;
     gameState.currentBid = null;
+    gameState.onesWild = true;
+    gameState.lastBidAction = null;
     gameState.lastPlay = null;
     gameState.targetCard = null;
 
     if (mode === 'dice') {
-      gameState.players.forEach(p => { if (p.alive) p.dice = createDice(); });
-      gameState.players.forEach(p => {
-        const s = io.sockets.sockets.get(p.id);
-        if (s) s.emit('myDice', p.dice);
-      });
-      io.emit('msg', "🎲 骰子模式开始！每人5颗骰子");
+      startNewDiceRound('start');
+      io.emit('msg', '骰子模式开始，每人获得 5 颗骰子。');
     } else {
       startNewCardRound();
-      io.emit('msg', "🃏 卡牌模式开始！太阳月亮星星恶魔");
+      io.emit('msg', '卡牌模式开始。');
     }
-    io.emit('state', gameState);
+    io.emit('gameStarted', { mode });
+    emitState();
   });
 
-  // 骰子模式：报价
-  socket.on('bid', (cnt, face) => {
+  socket.on('bid', (quantity, face, action = 'normal') => {
     if (gameState.gameMode !== 'dice' || gameState.gameOver) return;
-    const idx = gameState.players.findIndex(p => p.id === socket.id);
-    if (idx < 0 || idx !== gameState.turnIndex) return;
-    const p = gameState.players[idx];
-    if (!p.alive) return;
-    cnt = parseInt(cnt, 10);
-    face = parseInt(face, 10);
-    if (!(cnt >= 1 && cnt <= 30) || !(face >= 1 && face <= 6)) {
-      socket.emit('msg', "报价不合法");
+    const playerIndex = gameState.players.findIndex((player) => player.id === socket.id);
+    if (playerIndex < 0 || playerIndex !== gameState.turnIndex) return;
+    const player = gameState.players[playerIndex];
+    if (!player.alive) return;
+    quantity = Number.parseInt(quantity, 10);
+    face = Number.parseInt(face, 10);
+    if (quantity > 30) {
+      socket.emit('msg', '报价数量不能超过 30。');
       return;
     }
-    const old = gameState.currentBid;
-    if (old && !isValidBid(old[0], old[1], cnt, face)) {
-      socket.emit('msg', "报价不合法！必须大于上一轮");
+    const validation = validateBidTransition(gameState.currentBid, {
+      quantity,
+      face,
+      exact: action === 'exact',
+      fly: action === 'fly'
+    }, gameState.onesWild);
+    if (!validation.valid) {
+      socket.emit('msg', `报价不合法：${validation.reason}`);
       return;
     }
-    gameState.currentBid = [cnt, face];
-    io.emit('msg', `${p.name} 报价：${cnt} 个 ${face}`);
+
+    gameState.currentBid = [quantity, face];
+    gameState.onesWild = validation.nextOnesWild;
+    gameState.lastBidAction = validation.transition;
+    player.stats.bids += 1;
+    const marker = validation.transition === 'fly' ? '（飞）' : validation.transition.includes('exact') ? '（摘）' : '';
+    io.emit('msg', `${player.name} 报价：${quantity} 个 ${face}${marker}`);
     nextTurn();
-    io.emit('state', gameState);
+    emitState();
   });
 
-  // 骰子模式：质疑
   socket.on('doubt', () => {
-    if (gameState.gameMode !== 'dice' || gameState.gameOver) return;
-    const idx = gameState.players.findIndex(p => p.id === socket.id);
-    if (idx < 0 || idx !== gameState.turnIndex) return;
-    const p = gameState.players[idx];
-    if (!p.alive) return;
-    if (!gameState.currentBid) {
-      socket.emit('msg', "还没有报价，无法质疑");
-      return;
-    }
-    const [bc, bf] = gameState.currentBid;
-    const ok = checkDiceBid(bc, bf);
-    let victim;
-    if (ok) {
-      victim = idx;
-      io.emit('msg', `${p.name} 质疑失败！触发轮盘`);
+    if (gameState.gameMode !== 'dice' || gameState.gameOver || !gameState.currentBid) return;
+    const playerIndex = gameState.players.findIndex((player) => player.id === socket.id);
+    if (playerIndex < 0 || playerIndex !== gameState.turnIndex || !gameState.players[playerIndex].alive) return;
+
+    const doubter = gameState.players[playerIndex];
+    doubter.stats.doubts += 1;
+    const [bidQuantity, bidFace] = gameState.currentBid;
+    const result = checkDiceBid(gameState.players, bidQuantity, bidFace, gameState.onesWild);
+    let victimIndex;
+    if (result.valid) {
+      victimIndex = playerIndex;
+      doubter.stats.failedDoubts += 1;
+      io.emit('msg', `${doubter.name} 质疑失败，实际计数为 ${result.total}。`);
     } else {
-      victim = prevAliveIdx(idx);
-      if (victim < 0) { socket.emit('msg', "找不到上家"); return; }
-      io.emit('msg', `抓到骗子！${gameState.players[victim].name}触发轮盘`);
+      victimIndex = prevAliveIdx(playerIndex);
+      if (victimIndex < 0) return;
+      doubter.stats.successfulDoubts += 1;
+      io.emit('msg', `抓到骗子，实际只有 ${result.total} 个。`);
     }
-    const res = roulette(victim);
-    if (res.isShot) io.emit('msg', `💥 中弹！${gameState.players[res.victimIdx].name}出局！`);
-    else io.emit('msg', `✅ 空枪！${gameState.players[res.victimIdx].name}侥幸存活`);
+
+    io.emit('diceReveal', {
+      bid: gameState.currentBid.slice(),
+      onesWild: gameState.onesWild,
+      actualCount: result.total,
+      valid: result.valid,
+      players: gameState.players.filter((player) => player.alive).map((player) => {
+        const classification = classifyDiceHand(player.dice);
+        return {
+          id: player.id,
+          name: player.name,
+          dice: player.dice.slice(),
+          leopardType: classification.kind === 'real-leopard' ? 'real' : classification.kind === 'fake-leopard' ? 'fake' : null
+        };
+      })
+    });
+
+    const rouletteResult = roulette(victimIndex);
+    io.emit('msg', rouletteResult.isShot ? `${rouletteResult.victimName} 中弹出局。` : `${rouletteResult.victimName} 扣下空枪，幸存。`);
     gameState.currentBid = null;
-    checkGameOver();
-    if (!gameState.gameOver) nextTurn();
-    io.emit('state', gameState);
+    if (!finishIfNeeded()) {
+      nextTurn();
+      startNewDiceRound('roulette');
+      io.emit('msg', '轮盘结算完成，所有存活玩家已经重摇骰子。');
+    }
+    emitState();
   });
 
-  // 卡牌模式：出牌（带服务端校验 + 扣牌）
   socket.on('playCards', (cardList) => {
     if (gameState.gameMode !== 'card' || gameState.gameOver) return;
-    const idx = gameState.players.findIndex(p => p.id === socket.id);
-    if (idx < 0 || idx !== gameState.turnIndex) return;
-    const p = gameState.players[idx];
-    if (!p.alive) return;
+    const playerIndex = gameState.players.findIndex((player) => player.id === socket.id);
+    if (playerIndex < 0 || playerIndex !== gameState.turnIndex) return;
+    const player = gameState.players[playerIndex];
+    if (!player.alive) return;
     if (!Array.isArray(cardList) || cardList.length < 1 || cardList.length > 3) {
-      socket.emit('msg', "每次出牌 1~3 张（恶魔只能单出）");
+      socket.emit('msg', '每次出牌 1–3 张，恶魔只能单出。');
       return;
     }
-    // 校验手牌持有并扣牌
-    const hand = p.cards.slice();
-    for (const c of cardList) {
-      const pos = hand.indexOf(c);
-      if (pos < 0) {
-        socket.emit('msg', "你手里没有这张牌");
+    const hand = player.cards.slice();
+    for (const card of cardList) {
+      const position = hand.indexOf(card);
+      if (position < 0) {
+        socket.emit('msg', '你手里没有这张牌。');
         return;
       }
-      hand.splice(pos, 1);
+      hand.splice(position, 1);
     }
-    p.cards = hand;
-    gameState.lastPlay = { playerIdx: idx, cards: cardList.slice() };
-    io.emit('msg', `${p.name} 暗着打出了 ${cardList.length} 张牌，请下家选择相信或质疑`);
+    player.cards = hand;
+    player.stats.cardsPlayed += cardList.length;
+    gameState.lastPlay = { playerIdx: playerIndex, cards: cardList.slice() };
+    socket.emit('myCards', player.cards);
+    io.emit('msg', `${player.name} 暗着打出 ${cardList.length} 张牌，下家可继续出牌或质疑。`);
     nextTurn();
-    io.emit('state', gameState);
+    emitState();
   });
 
-  // 卡牌模式：质疑上家
   socket.on('doubtCard', () => {
-    if (gameState.gameMode !== 'card' || gameState.gameOver) return;
-    const idx = gameState.players.findIndex(p => p.id === socket.id);
-    if (idx < 0 || idx !== gameState.turnIndex) return;
-    const p = gameState.players[idx];
-    if (!p.alive) return;
-    const last = gameState.lastPlay;
-    if (!last) { socket.emit('msg', "上家还没有出牌"); return; }
-    const lastPlayerIdx = last.playerIdx;
-    const played = last.cards;
+    if (gameState.gameMode !== 'card' || gameState.gameOver || !gameState.lastPlay) return;
+    const playerIndex = gameState.players.findIndex((player) => player.id === socket.id);
+    if (playerIndex < 0 || playerIndex !== gameState.turnIndex || !gameState.players[playerIndex].alive) return;
+    const doubter = gameState.players[playerIndex];
+    const lastPlay = gameState.lastPlay;
+    const lastPlayer = gameState.players[lastPlay.playerIdx];
+    doubter.stats.doubts += 1;
+    io.emit('revealCards', { playerIdx: lastPlay.playerIdx, cards: lastPlay.cards });
+    const check = checkCardPlay(lastPlay.cards, gameState.targetCard);
 
-    io.emit('revealCards', { playerIdx: lastPlayerIdx, cards: played });
-    const checkRes = checkCardPlay(played, gameState.targetCard);
-    if (checkRes.valid) {
-      if (checkRes.isDevil) {
-        // 恶魔牌：除出牌者外所有存活玩家扣扳机
-        io.emit('msg', '🔥 恶魔牌生效！除出牌者外所有存活玩家触发轮盘！');
-        gameState.players.forEach((pl, i) => {
-          if (pl.alive && i !== lastPlayerIdx) {
-            const r = roulette(i);
-            if (r.isShot) io.emit('msg', `💥 ${pl.name} 中弹出局！`);
-            else io.emit('msg', `✅ ${pl.name} 空枪存活`);
-          }
+    if (check.valid) {
+      doubter.stats.failedDoubts += 1;
+      if (check.isDevil) {
+        io.emit('msg', '恶魔牌生效，除出牌者外的存活玩家依次扣动轮盘。');
+        gameState.players.forEach((player, index) => {
+          if (!player.alive || index === lastPlay.playerIdx) return;
+          const result = roulette(index);
+          io.emit('msg', result.isShot ? `${player.name} 中弹出局。` : `${player.name} 扣下空枪，幸存。`);
         });
       } else {
-        // 出牌属实，质疑者受罚
-        io.emit('msg', `✅ 出牌属实，质疑失败！${p.name} 扣动扳机`);
-        const res = roulette(idx);
-        if (res.isShot) io.emit('msg', `💥 ${p.name} 中弹出局！`);
-        else io.emit('msg', `✅ 空枪！${p.name} 侥幸存活`);
+        io.emit('msg', `出牌属实，${doubter.name} 质疑失败。`);
+        const result = roulette(playerIndex);
+        io.emit('msg', result.isShot ? `${doubter.name} 中弹出局。` : `${doubter.name} 扣下空枪，幸存。`);
       }
     } else {
-      // 出牌者撒谎
-      io.emit('msg', `❌ 撒谎！${gameState.players[lastPlayerIdx].name} 触发轮盘`);
-      const res = roulette(lastPlayerIdx);
-      if (res.isShot) io.emit('msg', `💥 ${gameState.players[lastPlayerIdx].name} 中弹出局！`);
-      else io.emit('msg', `✅ 空枪！${gameState.players[lastPlayerIdx].name} 侥幸存活`);
+      doubter.stats.successfulDoubts += 1;
+      io.emit('msg', `${lastPlayer.name} 撒谎，被质疑成功。`);
+      const result = roulette(lastPlay.playerIdx);
+      io.emit('msg', result.isShot ? `${lastPlayer.name} 中弹出局。` : `${lastPlayer.name} 扣下空枪，幸存。`);
     }
-    if (checkGameOver()) {
-      io.emit('state', gameState);
-      return;
+
+    if (!finishIfNeeded()) {
+      startNewCardRound();
+      io.emit('msg', '新一轮已经发牌，目标牌已更新。');
     }
-    // 重开新一轮
-    startNewCardRound();
-    io.emit('msg', '🃏 新一轮发牌，目标牌已更新');
-    io.emit('state', gameState);
+    emitState();
   });
 
-  // 卡牌模式：相信上家（出牌权交给相信者，由他出牌）
-  socket.on('trustCard', () => {
-    if (gameState.gameMode !== 'card' || gameState.gameOver) return;
-    const idx = gameState.players.findIndex(p => p.id === socket.id);
-    if (idx < 0 || idx !== gameState.turnIndex) return;
-    const p = gameState.players[idx];
-    if (!p.alive) return;
-    if (!gameState.lastPlay) return;
-    gameState.lastPlay = null;
-    io.emit('msg', `${p.name} 相信了上家的牌，请继续出牌`);
-    io.emit('state', gameState);
+  socket.on('returnLobby', () => {
+    if (!gameState.gameOver || !gameState.players.some((player) => player.id === socket.id)) return;
+    resetToLobby();
+    io.emit('returnedToLobby');
+    io.emit('msg', '已返回大厅，可以开始下一局。');
+    emitState();
   });
 
-  // 玩家离开
   socket.on('disconnect', () => {
-    const idx = gameState.players.findIndex(p => p.id === socket.id);
-    if (idx < 0) return;
-    const name = gameState.players[idx].name;
-    const wasTurn = idx === gameState.turnIndex;
-    const wasLastPlayer = gameState.lastPlay && gameState.lastPlay.playerIdx === idx;
-    gameState.players.splice(idx, 1);
-    io.emit('msg', `${name} 离开了房间`);
-    io.emit('state', gameState);
+    const playerIndex = gameState.players.findIndex((player) => player.id === socket.id);
+    if (playerIndex < 0) return;
+    const playerName = gameState.players[playerIndex].name;
+    const removedCurrent = playerIndex === gameState.turnIndex;
+    gameState.players.splice(playerIndex, 1);
 
-    if (gameState.players.length === 0) {
-      // 房间清空，重置
-      gameState.gameMode = null;
-      gameState.currentBid = null;
-      gameState.gameOver = false;
-      gameState.turnIndex = 0;
-      gameState.targetCard = null;
-      gameState.lastPlay = null;
-      io.emit('state', gameState);
+    if (!gameState.players.length) {
+      resetToLobby();
+      emitState();
       return;
     }
-
-    // 修正 turnIndex
-    if (gameState.turnIndex > idx) gameState.turnIndex -= 1;
-    if (gameState.lastPlay && gameState.lastPlay.playerIdx > idx) {
-      gameState.lastPlay.playerIdx -= 1;
+    if (gameState.lastPlay) {
+      if (gameState.lastPlay.playerIdx === playerIndex) gameState.lastPlay = null;
+      else if (gameState.lastPlay.playerIdx > playerIndex) gameState.lastPlay.playerIdx -= 1;
     }
-    if (wasTurn || wasLastPlayer) {
-      if (gameState.gameMode && aliveCount() <= 1 && !gameState.gameOver) {
-        checkGameOver();
-      } else if (!gameState.gameOver) {
-        nextTurn();
-      }
+    if (gameState.turnIndex > playerIndex) gameState.turnIndex -= 1;
+    if (gameState.turnIndex >= gameState.players.length) gameState.turnIndex = 0;
+    if (removedCurrent && !gameState.gameOver) {
+      gameState.turnIndex = ((gameState.turnIndex - 1) % gameState.players.length + gameState.players.length) % gameState.players.length;
+      nextTurn();
     }
-    io.emit('state', gameState);
+    io.emit('msg', `${playerName} 离开了房间。`);
+    if (gameState.gameMode) finishIfNeeded();
+    emitState();
   });
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log("server run on port", PORT);
+  console.log('server run on port', PORT);
 });
