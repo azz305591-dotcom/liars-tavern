@@ -14,7 +14,7 @@ const elements = {
   historyPanel: $('historyPanel'), historyRound: $('historyRound'), playHistory: $('playHistory'),
   rulesBtn: $('rulesBtn'), resultsBtn: $('resultsBtn'), rulesOverlay: $('rulesOverlay'), rulesCloseBtn: $('rulesCloseBtn'), rulesTitle: $('rulesTitle'), rulesBody: $('rulesBody'),
   leaderboardOverlay: $('leaderboardOverlay'), leaderboardCloseBtn: $('leaderboardCloseBtn'), leaderboardSummary: $('leaderboardSummary'), leaderboardList: $('leaderboardList'), leaderboardLobbyBtn: $('leaderboardLobbyBtn'), readyStatus: $('readyStatus'),
-  rouletteOverlay: $('rouletteOverlay'), revolver: $('revolver'), rouletteCylinder: $('rouletteCylinder'), rouletteEyebrow: $('rouletteEyebrow'), rouletteName: $('rouletteName'), rouletteResult: $('rouletteResult'),
+  rouletteOverlay: $('rouletteOverlay'), rouletteMechanism: $('rouletteMechanism'), rouletteCylinder: $('rouletteCylinder'), rouletteEyebrow: $('rouletteEyebrow'), rouletteName: $('rouletteName'), rouletteResult: $('rouletteResult'),
   appearanceBtn: $('appearanceBtn'), appearancePanel: $('appearancePanel'), bgColorInput: $('bgColorInput'), bgOpacityInput: $('bgOpacityInput'), bgOpacityOutput: $('bgOpacityOutput'), brightnessInput: $('brightnessInput'), brightnessOutput: $('brightnessOutput'), resetAppearanceBtn: $('resetAppearanceBtn'), leaveGameBtn: $('leaveGameBtn'),
   toastLayer: $('toastLayer')
 };
@@ -484,7 +484,7 @@ function playNextRoulette() {
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   elements.rouletteEyebrow.textContent = data.isDevil ? '恶魔牌触发' : data.challengeSuccess ? '质疑成功' : '质疑失败';
   elements.rouletteName.textContent = `${data.victimName} 接受轮盘`;
-  elements.rouletteResult.textContent = '装入 1 枚实弹';
+  elements.rouletteResult.textContent = '实弹进入弹巢';
   elements.rouletteOverlay.classList.remove('shot', 'safe', 'phase-load', 'phase-spin', 'phase-trigger');
   elements.rouletteOverlay.classList.add('phase-load');
   elements.rouletteOverlay.classList.add('open');
@@ -495,42 +495,45 @@ function playNextRoulette() {
     elements.flowDetail.textContent = `${data.victimName} 正在扣动扳机`;
     elements.flowBanner.dataset.step = '03';
   }
-  const revealDelay = reducedMotion ? 80 : 2050;
+  const revealDelay = reducedMotion ? 80 : 2200;
   if (!reducedMotion && window.anime && typeof window.anime.animate === 'function') {
-    window.anime.animate(elements.revolver.querySelector('.cartridge'), { x:[42,0], opacity:[0,1], duration:420, ease:'out(4)' });
-    window.anime.animate(elements.revolver.querySelector('.revolver-frame'), { y:[2,0], duration:420, ease:'out(3)' });
+    window.anime.animate(elements.rouletteMechanism, { scale:[0.94,1], duration:420, ease:'out(4)' });
   }
   window.setTimeout(() => {
     elements.rouletteOverlay.classList.remove('phase-load');
     elements.rouletteOverlay.classList.add('phase-spin');
     elements.rouletteResult.textContent = '弹巢旋转 · 结果未知';
     if (!reducedMotion && window.anime && typeof window.anime.animate === 'function') {
-      window.anime.animate(elements.rouletteCylinder, { rotate:'3.75turn', duration:920, ease:'out(5)' });
+      window.anime.animate(elements.rouletteCylinder, { rotate:data.isShot ? '4turn' : '3.833turn', scale:[1,1.035,1], duration:1250, ease:'out(5)' });
     }
-  }, reducedMotion ? 20 : 480);
+  }, reducedMotion ? 20 : 360);
   window.setTimeout(() => {
     elements.rouletteOverlay.classList.remove('phase-spin');
     elements.rouletteOverlay.classList.add('phase-trigger');
     elements.rouletteResult.textContent = '击锤锁定 · 扣动扳机';
     if (!reducedMotion && window.anime && typeof window.anime.animate === 'function') {
-      window.anime.animate(elements.revolver.querySelector('.revolver-frame'), { x:[0,-2,2,0], duration:260, ease:'inOut(2)' });
+      window.anime.animate(elements.rouletteMechanism, { rotate:[0,-2,1,0], scale:[1,1.025,1], duration:330, ease:'inOut(2)' });
     }
-  }, reducedMotion ? 45 : 1540);
+  }, reducedMotion ? 45 : 1740);
   if (seat) {
     seat.classList.add('risk');
     window.setTimeout(() => {
       seat.classList.remove('risk');
       seat.classList.add(data.isShot ? 'shot' : 'safe');
       window.setTimeout(() => seat.classList.remove('shot', 'safe'), 800);
-    }, reducedMotion ? 40 : 1540);
+    }, reducedMotion ? 40 : 1740);
   }
   window.setTimeout(() => {
     elements.rouletteOverlay.classList.remove('phase-trigger');
     elements.rouletteOverlay.classList.add(data.isShot ? 'shot' : 'safe');
+    if (data.isShot && !reducedMotion) {
+      elements.gameScreen.classList.add('impact-shake');
+      window.setTimeout(() => elements.gameScreen.classList.remove('impact-shake'), 760);
+    }
     elements.rouletteResult.textContent = data.isShot ? '击发 · 实弹 · 出局' : `咔哒 · 空枪 · 剩余 ${data.remaining} 格`;
     if (!reducedMotion && window.anime && typeof window.anime.animate === 'function') {
       window.anime.animate('.roulette-stage', data.isShot
-        ? { x:[-10,9,-7,6,0], scale:[1,1.018,1], duration:460, ease:'inOut(2)' }
+        ? { x:[-15,13,-11,9,-6,4,0], y:[0,-3,2,-2,0], scale:[1,1.035,1], duration:620, ease:'inOut(2)' }
         : { y:[0,3,0], duration:360, ease:'out(3)' });
     }
     showToast(data.isShot ? `${data.victimName} 中弹出局` : `${data.victimName} 扣下空枪，幸存`, data.isShot ? 'bad' : 'good');
@@ -541,7 +544,7 @@ function playNextRoulette() {
     renderFlow();
     rouletteAnimating = false;
     playNextRoulette();
-  }, reducedMotion ? 950 : 3300);
+  }, reducedMotion ? 950 : 3600);
 }
 
 function applyAppearance() {

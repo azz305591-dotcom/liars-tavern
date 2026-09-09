@@ -145,15 +145,10 @@
   <div class="roulette-overlay" id="rouletteOverlay" aria-hidden="true">
     <section class="roulette-stage" aria-live="assertive">
       <div class="roulette-eyebrow" id="rouletteEyebrow">质疑结算</div>
-      <div class="revolver" id="revolver" aria-hidden="true">
-        <div class="revolver-barrel"></div>
-        <div class="revolver-frame">
-          <div class="roulette-cylinder" id="rouletteCylinder"><i></i><i></i><i></i><i></i><i></i><i></i><b class="live-round"></b></div>
-          <div class="revolver-hammer"></div>
-          <div class="revolver-trigger"></div>
-        </div>
-        <div class="revolver-grip"></div>
-        <div class="cartridge"><i></i><span>LIVE</span></div>
+      <div class="roulette-mechanism" id="rouletteMechanism" aria-hidden="true">
+        <div class="strike-index"><i></i></div>
+        <div class="roulette-cylinder" id="rouletteCylinder"><i class="loaded"></i><i></i><i></i><i></i><i></i><i></i><b></b></div>
+        <div class="chamber-readout"><span>1 枚实弹</span><span>6 格弹巢</span></div>
       </div>
       <strong class="roulette-name" id="rouletteName">等待轮盘</strong>
       <div class="roulette-result" id="rouletteResult">装入实弹</div>
