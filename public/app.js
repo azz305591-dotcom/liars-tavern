@@ -36,6 +36,16 @@ let joinTimer = null;
 let rouletteQueue = [];
 let rouletteAnimating = false;
 let lastFlowSignature = '';
+const ROULETTE_TIMING = Object.freeze({
+  spinStart: 650,
+  lock: 3400,
+  reveal: 4050,
+  close: 7200,
+  reducedSpinStart: 160,
+  reducedLock: 620,
+  reducedReveal: 980,
+  reducedClose: 3200
+});
 
 function getDeviceId() {
   try {
@@ -126,7 +136,7 @@ function myIdx() {
 
 function isMyTurn() {
   const index = myIdx();
-  return Boolean(state && index >= 0 && index === state.turnIndex && !state.gameOver && state.players[index].alive);
+  return Boolean(state && index >= 0 && index === state.turnIndex && !state.gameOver && state.players[index].alive && !rouletteAnimating);
 }
 
 function showAppropriateScreen() {
@@ -480,71 +490,79 @@ function playNextRoulette() {
   const data = rouletteQueue.shift();
   if (!data) { rouletteAnimating = false; return; }
   rouletteAnimating = true;
+  updateControls();
   const seat = elements.seats.querySelector(`[data-player-id="${cssEscape(data.victimId)}"]`);
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   elements.rouletteEyebrow.textContent = data.isDevil ? '恶魔牌触发' : data.challengeSuccess ? '质疑成功' : '质疑失败';
   elements.rouletteName.textContent = `${data.victimName} 接受轮盘`;
-  elements.rouletteResult.textContent = '实弹进入弹巢';
+  elements.rouletteResult.textContent = '装入一枚实弹 · 弹巢待转';
   elements.rouletteOverlay.classList.remove('shot', 'safe', 'phase-load', 'phase-spin', 'phase-trigger');
   elements.rouletteOverlay.classList.add('phase-load');
   elements.rouletteOverlay.classList.add('open');
   elements.rouletteOverlay.setAttribute('aria-hidden', 'false');
+  document.documentElement.classList.add('roulette-active');
+  elements.rouletteCylinder.style.transform = 'rotate(0turn)';
   if (elements.flowBanner) {
     elements.flowIndex.textContent = '03';
     elements.flowTitle.textContent = '轮盘判定中';
-    elements.flowDetail.textContent = `${data.victimName} 正在扣动扳机`;
+    elements.flowDetail.textContent = `全员同步观看 · ${data.victimName} 正在接受惩罚`;
     elements.flowBanner.dataset.step = '03';
   }
-  const revealDelay = reducedMotion ? 80 : 2200;
+  const spinStart = reducedMotion ? ROULETTE_TIMING.reducedSpinStart : ROULETTE_TIMING.spinStart;
+  const lockDelay = reducedMotion ? ROULETTE_TIMING.reducedLock : ROULETTE_TIMING.lock;
+  const revealDelay = reducedMotion ? ROULETTE_TIMING.reducedReveal : ROULETTE_TIMING.reveal;
+  const closeDelay = reducedMotion ? ROULETTE_TIMING.reducedClose : ROULETTE_TIMING.close;
   if (!reducedMotion && window.anime && typeof window.anime.animate === 'function') {
-    window.anime.animate(elements.rouletteMechanism, { scale:[0.94,1], duration:420, ease:'out(4)' });
+    window.anime.animate(elements.rouletteMechanism, { scale:[0.965,1], opacity:[0.72,1], duration:520, ease:'out(4)' });
   }
   window.setTimeout(() => {
     elements.rouletteOverlay.classList.remove('phase-load');
     elements.rouletteOverlay.classList.add('phase-spin');
-    elements.rouletteResult.textContent = '弹巢旋转 · 结果未知';
+    elements.rouletteResult.textContent = '弹巢高速旋转 · 所有人等待结果';
     if (!reducedMotion && window.anime && typeof window.anime.animate === 'function') {
-      window.anime.animate(elements.rouletteCylinder, { rotate:data.isShot ? '4turn' : '3.833turn', scale:[1,1.035,1], duration:1250, ease:'out(5)' });
+      window.anime.animate(elements.rouletteCylinder, { rotate:data.isShot ? '6turn' : '5.833turn', scale:[1,1.025,1], duration:2700, ease:'out(6)' });
     }
-  }, reducedMotion ? 20 : 360);
+  }, spinStart);
   window.setTimeout(() => {
     elements.rouletteOverlay.classList.remove('phase-spin');
     elements.rouletteOverlay.classList.add('phase-trigger');
-    elements.rouletteResult.textContent = '击锤锁定 · 扣动扳机';
+    elements.rouletteResult.textContent = '弹巢锁定 · 击锤落下';
     if (!reducedMotion && window.anime && typeof window.anime.animate === 'function') {
-      window.anime.animate(elements.rouletteMechanism, { rotate:[0,-2,1,0], scale:[1,1.025,1], duration:330, ease:'inOut(2)' });
+      window.anime.animate(elements.rouletteMechanism, { rotate:[0,-1.4,.7,0], scale:[1,1.018,1], duration:460, ease:'inOut(2)' });
     }
-  }, reducedMotion ? 45 : 1740);
+  }, lockDelay);
   if (seat) {
     seat.classList.add('risk');
     window.setTimeout(() => {
       seat.classList.remove('risk');
       seat.classList.add(data.isShot ? 'shot' : 'safe');
-      window.setTimeout(() => seat.classList.remove('shot', 'safe'), 800);
-    }, reducedMotion ? 40 : 1740);
+      window.setTimeout(() => seat.classList.remove('shot', 'safe'), 1500);
+    }, revealDelay);
   }
   window.setTimeout(() => {
     elements.rouletteOverlay.classList.remove('phase-trigger');
     elements.rouletteOverlay.classList.add(data.isShot ? 'shot' : 'safe');
     if (data.isShot && !reducedMotion) {
       elements.gameScreen.classList.add('impact-shake');
-      window.setTimeout(() => elements.gameScreen.classList.remove('impact-shake'), 760);
+      window.setTimeout(() => elements.gameScreen.classList.remove('impact-shake'), 980);
     }
-    elements.rouletteResult.textContent = data.isShot ? '击发 · 实弹 · 出局' : `咔哒 · 空枪 · 剩余 ${data.remaining} 格`;
+    elements.rouletteResult.textContent = data.isShot ? '命中 · 实弹击发 · 玩家出局' : `空枪 · 本次幸存 · 剩余 ${data.remaining} 格`;
     if (!reducedMotion && window.anime && typeof window.anime.animate === 'function') {
       window.anime.animate('.roulette-stage', data.isShot
-        ? { x:[-15,13,-11,9,-6,4,0], y:[0,-3,2,-2,0], scale:[1,1.035,1], duration:620, ease:'inOut(2)' }
-        : { y:[0,3,0], duration:360, ease:'out(3)' });
+        ? { x:[-18,15,-13,10,-7,5,-2,0], y:[0,-4,3,-2,1,0], scale:[1,1.035,1], duration:820, ease:'inOut(2)' }
+        : { y:[0,3,0], duration:440, ease:'out(3)' });
     }
     showToast(data.isShot ? `${data.victimName} 中弹出局` : `${data.victimName} 扣下空枪，幸存`, data.isShot ? 'bad' : 'good');
   }, revealDelay);
   window.setTimeout(() => {
     elements.rouletteOverlay.classList.remove('open', 'shot', 'safe', 'phase-load', 'phase-spin', 'phase-trigger');
     elements.rouletteOverlay.setAttribute('aria-hidden', 'true');
+    document.documentElement.classList.remove('roulette-active');
     renderFlow();
     rouletteAnimating = false;
+    updateControls();
     playNextRoulette();
-  }, reducedMotion ? 950 : 3600);
+  }, closeDelay);
 }
 
 function applyAppearance() {

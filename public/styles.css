@@ -52,3 +52,53 @@ button,input,select { font:inherit; } button:focus-visible,input:focus-visible,s
 @keyframes round-seat { from { opacity:.15; filter:blur(3px); transform:scale(.35); } to { opacity:1; filter:none; transform:scale(1); } } @keyframes index-tension { to { transform:translateX(-50%) translateY(2px); } } @keyframes index-drop { 50% { transform:translateX(-50%) translateY(8px); } } @keyframes screen-red-impact { 0% { opacity:.78; } 18% { opacity:.08; } 34% { opacity:.48; } 52% { opacity:.04; } 70% { opacity:.24; } 100% { opacity:0; } } @keyframes game-impact { 0% { transform:none; filter:none; } 10% { transform:translate3d(-12px,5px,0) rotate(-.25deg); filter:contrast(1.15); } 22% { transform:translate3d(11px,-5px,0) rotate(.2deg); } 34% { transform:translate3d(-9px,3px,0); } 48% { transform:translate3d(7px,-3px,0); } 62% { transform:translate3d(-5px,2px,0); } 78% { transform:translate3d(3px,-1px,0); } 100% { transform:none; filter:none; } }
 @media (max-width:520px) { .roulette-stage { padding:18px 16px 16px; }.roulette-mechanism { width:180px; height:190px; margin-top:5px; }.roulette-mechanism .roulette-cylinder { left:17px; top:25px; width:146px; height:146px; }.roulette-mechanism .roulette-cylinder>i { left:57px; top:12px; width:30px; height:30px; transform-origin:15px 60px; }.roulette-mechanism .roulette-cylinder>b { left:60px; top:60px; width:25px; height:25px; }.roulette-name { font-size:13px; } }
 @media (prefers-reduced-motion:reduce) { .roulette-overlay.shot::before { animation:none; opacity:.2; }.phase-spin .strike-index i { animation:none; } }
+
+/* Shared penalty sequence: a restrained, close-up metal cylinder rather than a cartoon gun. */
+.roulette-active .display-settings { z-index:97; }
+.roulette-overlay { background:rgba(7,9,8,.88); transition:opacity .28s ease,visibility .28s; }
+.roulette-overlay.open { opacity:1; visibility:visible; transition:none; }
+.roulette-stage { width:min(410px,calc(100vw - 28px)); padding:24px 28px 22px; border-color:#3c423e; border-radius:12px; color:#eef1ee; background:#121512; box-shadow:0 34px 90px rgba(0,0,0,.58); }
+.roulette-context { color:#aeb5af; font-size:10px; font-weight:600; letter-spacing:.08em; }
+.roulette-mechanism { width:230px; height:244px; margin:14px auto 5px; filter:drop-shadow(0 20px 22px rgba(0,0,0,.48)); }
+.strike-index { top:-1px; width:34px; height:34px; }
+.strike-index::before { left:16px; width:2px; height:18px; background:#d6dad7; box-shadow:0 1px 0 #111; }
+.strike-index i { left:10px; top:15px; width:13px; height:13px; border-color:#d6dad7; }
+.roulette-mechanism .roulette-cylinder { left:15px; top:27px; width:200px; height:200px; border-color:#747b76; background:radial-gradient(circle at 43% 36%,#d9ddda 0 7%,#b9bfbb 25%,#777e79 62%,#4f5651 100%); box-shadow:inset 0 0 0 3px #d6dad7,inset 0 0 0 10px #858c87,inset 0 -15px 24px rgba(20,24,21,.34),0 15px 30px rgba(0,0,0,.38); }
+.roulette-mechanism .roulette-cylinder::before { inset:54px; border-color:#626964; background:radial-gradient(circle at 42% 35%,#b8beba,#737a75 68%,#4b524d); box-shadow:0 0 0 8px rgba(55,62,57,.22); }
+.roulette-mechanism .roulette-cylinder>i { left:78px; top:15px; width:42px; height:42px; border:3px solid #707772; background:radial-gradient(circle at 48% 62%,#060706 0 48%,#1b1e1c 69%,#555c57 72%,#878e89 100%); box-shadow:inset 0 9px 13px rgba(0,0,0,.75),0 1px 0 rgba(255,255,255,.55); transform-origin:21px 84px; }
+.roulette-mechanism .roulette-cylinder>i.loaded { border-color:#88312b; background:radial-gradient(circle at 48% 42%,#d8c083 0 12%,#a88742 14% 55%,#6f5626 72%,#352a18 100%); box-shadow:inset 0 0 0 4px #b99a56,inset 0 8px 12px rgba(63,42,12,.4),0 0 0 2px #9f312a,0 0 18px rgba(172,43,35,.36); }
+.roulette-mechanism .roulette-cylinder>b { left:80px; top:80px; width:38px; height:38px; border-color:#4d544f; background:radial-gradient(circle at 42% 36%,#c9ceca 0 11%,#747b76 43%,#3e4540 100%); box-shadow:inset 0 0 0 6px #777e79,0 2px 7px rgba(0,0,0,.38); }
+.roulette-mechanism .roulette-cylinder>b::before,.roulette-mechanism .roulette-cylinder>b::after { content:""; position:absolute; inset:8px; border:1px solid rgba(230,233,231,.32); border-radius:50%; }
+.roulette-mechanism .roulette-cylinder>b::after { inset:15px; border:0; background:#2d322f; }
+.chamber-readout { bottom:-1px; gap:8px; color:#abb2ac; font-size:9px; }
+.chamber-readout span { padding:4px 8px; border-color:#454b47; color:#c9ceca; background:#1c201d; }
+.chamber-readout span:first-child { color:#d0ad64; border-color:#665837; }
+.roulette-name { margin-top:8px; color:#f3f5f3; font-size:15px; }
+.roulette-result { min-height:22px; margin-top:7px; color:#b9c0ba; font-size:12px; }
+.roulette-timeline { gap:6px; margin-top:13px; }
+.roulette-timeline i { width:38px; height:2px; border-radius:0; background:#3e4540; }
+.phase-load .roulette-timeline i:first-child,.phase-spin .roulette-timeline i:nth-child(-n+2),.phase-trigger .roulette-timeline i,.roulette-overlay.shot .roulette-timeline i,.roulette-overlay.safe .roulette-timeline i { background:#b7beb8; }
+.phase-spin .roulette-cylinder { filter:contrast(1.08) brightness(1.03); }
+.roulette-overlay.shot .roulette-stage { border-color:#8f302a; color:#fff; background:#180c0b; }
+.roulette-overlay.shot .roulette-result { color:#ff6157; }
+.roulette-overlay.safe .roulette-stage { border-color:#53635a; background:#111612; }
+.roulette-overlay.safe .roulette-result { color:#9fc9aa; }
+.roulette-overlay.shot::before { background:#db0c00; animation-duration:.92s; }
+.game-screen.impact-shake { animation-duration:.92s; }
+
+@media (max-width:520px) {
+  .roulette-stage { width:calc(100vw - 20px); max-height:calc(100dvh - 20px); padding:18px 14px 17px; }
+  .roulette-mechanism { width:196px; height:210px; margin:7px auto 2px; }
+  .roulette-mechanism .roulette-cylinder { left:13px; top:25px; width:170px; height:170px; }
+  .roulette-mechanism .roulette-cylinder::before { inset:46px; }
+  .roulette-mechanism .roulette-cylinder>i { left:66px; top:13px; width:36px; height:36px; transform-origin:18px 72px; }
+  .roulette-mechanism .roulette-cylinder>b { left:68px; top:68px; width:32px; height:32px; }
+  .roulette-mechanism .roulette-cylinder>b::after { inset:12px; }
+  .roulette-name { margin-top:5px; font-size:14px; }
+  .roulette-result { font-size:11px; }
+}
+
+@media (prefers-reduced-motion:reduce) {
+  .roulette-mechanism .roulette-cylinder { transition:transform .45s ease-out; }
+  .roulette-overlay.shot::before { opacity:.3; }
+}

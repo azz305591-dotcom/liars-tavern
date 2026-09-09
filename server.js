@@ -3,7 +3,7 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { checkDiceBid, classifyDiceHand, rerollDice, validateBidTransition, createRevolver, pullRevolver, revolverPublicState } = require('./game-logic');
+const { checkDiceBid, classifyDiceHand, rerollDice, validateBidTransition, createRevolver, pullRevolver, revolverPublicState, aliveTurnIndex } = require('./game-logic');
 
 const app = express();
 const server = http.createServer(app);
@@ -78,6 +78,12 @@ function prevAliveIdx(state, from) {
 function nextTurn(state) {
   if (state.gameOver || activeCount(state) <= 1) return;
   const next = nextAliveIdx(state, state.turnIndex);
+  if (next >= 0) state.turnIndex = next;
+}
+
+function ensureAliveTurn(state) {
+  if (state.gameOver || activeCount(state) <= 1) return;
+  const next = aliveTurnIndex(state.players, state.turnIndex);
   if (next >= 0) state.turnIndex = next;
 }
 
@@ -289,7 +295,12 @@ io.on('connection',socket=>{
       if(check.isDevil){roomEmit(state,'msg','恶魔牌生效，除出牌者外均扣动轮盘。');state.players.forEach((p,index)=>{if(p.alive&&index!==last.playerIdx){const r=roulette(state,index,{challengeSuccess:false,isDevil:true});roomEmit(state,'msg',r.isShot?`${p.name} 中弹出局。`:`${p.name} 扣下空枪，幸存。`);}});}
       else{roomEmit(state,'msg',`出牌属实，${doubter.name} 质疑失败。`);const r=roulette(state,i,{challengeSuccess:false});roomEmit(state,'msg',r.isShot?`${doubter.name} 中弹出局。`:`${doubter.name} 扣下空枪，幸存。`);}
     }else{doubter.stats.successfulDoubts+=1;roomEmit(state,'msg',`${lastPlayer.name} 撒谎，被质疑成功。`);const r=roulette(state,last.playerIdx,{challengeSuccess:true});roomEmit(state,'msg',r.isShot?`${lastPlayer.name} 中弹出局。`:`${lastPlayer.name} 扣下空枪，幸存。`);}
-    if(!finishIfNeeded(state)){startCardRound(state);roomEmit(state,'msg','新一轮已经发牌，目标牌已更新。');} emitState(state);
+    if(!finishIfNeeded(state)){
+      ensureAliveTurn(state);
+      startCardRound(state);
+      roomEmit(state,'msg','新一轮已经发牌，目标牌已更新。');
+    }
+    emitState(state);
   });
 
   socket.on('toggleReady',()=>{

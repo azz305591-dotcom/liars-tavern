@@ -143,6 +143,17 @@ function revolverPublicState(revolver) {
   return { chambers: REVOLVER_CHAMBERS, remaining: Math.max(0, REVOLVER_CHAMBERS - pulls) };
 }
 
+function aliveTurnIndex(players, currentIndex) {
+  if (!Array.isArray(players) || !players.length) return -1;
+  const normalized = Number.isInteger(currentIndex) ? ((currentIndex % players.length) + players.length) % players.length : 0;
+  if (players[normalized] && players[normalized].alive !== false) return normalized;
+  for (let step = 1; step < players.length; step += 1) {
+    const index = (normalized + step) % players.length;
+    if (players[index].alive !== false) return index;
+  }
+  return -1;
+}
+
 function readBid(bid) {
   if (Array.isArray(bid)) return { quantity: bid[0], face: bid[1] };
   if (bid && typeof bid === 'object') {
@@ -236,5 +247,6 @@ module.exports = {
   createRevolver,
   pullRevolver,
   revolverPublicState,
+  aliveTurnIndex,
   validateBidTransition
 };

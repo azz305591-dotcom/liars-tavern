@@ -12,6 +12,7 @@ const {
   createRevolver,
   pullRevolver,
   revolverPublicState,
+  aliveTurnIndex,
   validateBidTransition
 } = require('../game-logic');
 
@@ -48,6 +49,19 @@ test('轮盘为每位玩家保存真实弹巢进度，且不向前端泄露子�
   assert.equal(result.remaining, 3);
   assert.deepEqual(revolverPublicState(result.revolver), { chambers: 6, remaining: 3 });
   assert.equal('bulletAt' in revolverPublicState(result.revolver), false);
+});
+
+test('当前玩家出局后回合自动顺延到下一位存活玩家', () => {
+  const players = [
+    { id: 'a', alive: true },
+    { id: 'b', alive: false },
+    { id: 'c', alive: false },
+    { id: 'd', alive: true }
+  ];
+  assert.equal(aliveTurnIndex(players, 1), 3);
+  assert.equal(aliveTurnIndex(players, 3), 3);
+  assert.equal(aliveTurnIndex(players, 6), 3);
+  assert.equal(aliveTurnIndex(players.map((player) => ({ ...player, alive: false })), 1), -1);
 });
 
 test('普通骰在飞时将 1 当万能数，摘后只按实际点数计算', () => {
