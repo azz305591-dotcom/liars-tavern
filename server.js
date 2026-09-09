@@ -21,6 +21,12 @@ function makeRoom(code) {
   return { roomCode:code, hostId:null, players:[], gameMode:null, currentBid:null, onesWild:true, lastBidAction:null, turnIndex:0, gameOver:false, finalResults:null, targetCard:null, lastPlay:null, playHistory:[], roundNumber:0, readyPlayerIds:[], eliminationCounter:0 };
 }
 
+function firstOpenSeat(state) {
+  const occupied=new Set(state.players.map(p=>p.seatIndex));
+  for(let index=0;index<MAX_PLAYER;index+=1) if(!occupied.has(index)) return index;
+  return -1;
+}
+
 function makeCode() {
   let code;
   do code = String(Math.floor(1000 + Math.random() * 9000)); while (rooms.has(code));
@@ -39,7 +45,7 @@ function publicState(state) {
     lastPlay:state.lastPlay ? { playerIdx:state.lastPlay.playerIdx, count:state.lastPlay.cards.length } : null,
     playHistory:state.playHistory.slice(-16).map(entry => ({ ...entry, cards:entry.cards ? entry.cards.slice() : null })),
     readyPlayerIds:state.readyPlayerIds.slice(),
-    players:state.players.map(p => ({ id:p.id, name:p.name, alive:p.alive, connected:p.connected, diceCount:p.dice.length, cardCount:p.cards.length, revolver:revolverPublicState(p.revolver) }))
+    players:state.players.map(p => ({ id:p.id, name:p.name, seatIndex:p.seatIndex, alive:p.alive, connected:p.connected, diceCount:p.dice.length, cardCount:p.cards.length, revolver:revolverPublicState(p.revolver) }))
   };
 }
 
@@ -181,7 +187,7 @@ function addOrReconnect(socket,state,name,deviceId) {
   else {
     if(state.gameMode) return {ok:false,message:'该房间正在对局中。你可以创建新房间，或等待本局结束。'};
     if(state.players.length>=MAX_PLAYER) return {ok:false,message:'房间已满，最多 4 人。'};
-    player={id:cleanId,socketId:socket.id,name:cleanName,dice:[],cards:[],revolver:createRevolver(),alive:true,connected:true,eliminatedAt:null,stats:emptyStats()};
+    player={id:cleanId,socketId:socket.id,name:cleanName,seatIndex:firstOpenSeat(state),dice:[],cards:[],revolver:createRevolver(),alive:true,connected:true,eliminatedAt:null,stats:emptyStats()};
     state.players.push(player);
   }
   socket.join(channel(state)); socket.data.roomCode=state.roomCode; socket.data.playerId=player.id;
@@ -214,9 +220,24 @@ io.on('connection',socket=>{
     const state=roomFor(socket); if(!state||state.hostId!==socket.data.playerId) return;
     if(!['dice','card'].includes(mode)||state.gameMode) return;
     if(state.players.length<2) { socket.emit('msg','至少 2 人才能开局。'); return; }
+    state.players.sort((a,b)=>a.seatIndex-b.seatIndex);
     resetPlayers(state); state.gameMode=mode;
     if(mode==='dice') startDiceRound(state,'start'); else startCardRound(state);
     roomEmit(state,'gameStarted',{mode}); roomEmit(state,'msg',mode==='dice'?'骰子模式开始。':'卡牌模式开始。'); emitState(state);
+  });
+
+  socket.on('chooseSeat',seatIndex=>{
+    const state=roomFor(socket); if(!state||state.gameMode)return;
+    const player=state.players.find(p=>p.id===socket.data.playerId); if(!player)return;
+    seatIndex=Number.parseInt(seatIndex,10);
+    if(!Number.isInteger(seatIndex)||seatIndex<0||seatIndex>=MAX_PLAYER){socket.emit('seatResult',{ok:false,message:'座位无效，请重新选择。'});return;}
+    const occupied=state.players.find(p=>p.seatIndex===seatIndex&&p.id!==player.id);
+    if(occupied){socket.emit('seatResult',{ok:false,message:`${occupied.name} 已坐在这个位置。`});return;}
+    if(player.seatIndex===seatIndex){socket.emit('seatResult',{ok:true,seatIndex,message:'你已经在这个位置。'});return;}
+    player.seatIndex=seatIndex;
+    socket.emit('seatResult',{ok:true,seatIndex,message:`已换到 ${seatIndex+1} 号位。`});
+    roomEmit(state,'msg',`${player.name} 换到了 ${seatIndex+1} 号位。`);
+    emitState(state);
   });
 
   socket.on('bid',(quantity,face,action='normal')=>{

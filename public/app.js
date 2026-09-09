@@ -3,7 +3,7 @@ const $ = (id) => document.getElementById(id);
 const elements = {
   joinScreen: $('joinScreen'), lobbyScreen: $('lobbyScreen'), gameScreen: $('gameScreen'),
   nameInput: $('nameInput'), roomInput: $('roomInput'), createBtn: $('createBtn'), joinBtn: $('joinBtn'), joinHint: $('joinHint'),
-  lobbyInfo: $('lobbyInfo'), lobbyHint: $('lobbyHint'), lobbyRoomCode: $('lobbyRoomCode'), copyInviteBtn: $('copyInviteBtn'), leaveLobbyBtn: $('leaveLobbyBtn'), startDiceBtn: $('startDiceBtn'), startCardBtn: $('startCardBtn'),
+  lobbyInfo: $('lobbyInfo'), lobbyHint: $('lobbyHint'), lobbyRoomCode: $('lobbyRoomCode'), copyInviteBtn: $('copyInviteBtn'), leaveLobbyBtn: $('leaveLobbyBtn'), startDiceBtn: $('startDiceBtn'), startCardBtn: $('startCardBtn'), lobbySeats: $('lobbySeats'), seatPickerStatus: $('seatPickerStatus'),
   modeBadge: $('modeBadge'), roomInfo: $('roomInfo'), seats: $('seats'), centerLabel: $('centerLabel'),
   centerValue: $('centerValue'), turnInfo: $('turnInfo'), wildStatus: $('wildStatus'), returnLobbyBtn: $('returnLobbyBtn'),
   flowBanner: $('flowBanner'), flowIndex: $('flowIndex'), flowTitle: $('flowTitle'), flowDetail: $('flowDetail'),
@@ -14,7 +14,7 @@ const elements = {
   historyPanel: $('historyPanel'), historyRound: $('historyRound'), playHistory: $('playHistory'),
   rulesBtn: $('rulesBtn'), resultsBtn: $('resultsBtn'), rulesOverlay: $('rulesOverlay'), rulesCloseBtn: $('rulesCloseBtn'), rulesTitle: $('rulesTitle'), rulesBody: $('rulesBody'),
   leaderboardOverlay: $('leaderboardOverlay'), leaderboardCloseBtn: $('leaderboardCloseBtn'), leaderboardSummary: $('leaderboardSummary'), leaderboardList: $('leaderboardList'), leaderboardLobbyBtn: $('leaderboardLobbyBtn'), readyStatus: $('readyStatus'),
-  rouletteOverlay: $('rouletteOverlay'), rouletteCylinder: $('rouletteCylinder'), rouletteEyebrow: $('rouletteEyebrow'), rouletteName: $('rouletteName'), rouletteResult: $('rouletteResult'),
+  rouletteOverlay: $('rouletteOverlay'), revolver: $('revolver'), rouletteCylinder: $('rouletteCylinder'), rouletteEyebrow: $('rouletteEyebrow'), rouletteName: $('rouletteName'), rouletteResult: $('rouletteResult'),
   appearanceBtn: $('appearanceBtn'), appearancePanel: $('appearancePanel'), bgColorInput: $('bgColorInput'), bgOpacityInput: $('bgOpacityInput'), bgOpacityOutput: $('bgOpacityOutput'), brightnessInput: $('brightnessInput'), brightnessOutput: $('brightnessOutput'), resetAppearanceBtn: $('resetAppearanceBtn'), leaveGameBtn: $('leaveGameBtn'),
   toastLayer: $('toastLayer')
 };
@@ -144,11 +144,34 @@ function showAppropriateScreen() {
   }
 }
 
+function renderLobbySeats() {
+  elements.lobbySeats.replaceChildren();
+  if (!state || state.gameMode) return;
+  const bySeat = new Map(state.players.map((player) => [player.seatIndex, player]));
+  const mine = state.players.find((player) => player.id === myId);
+  elements.seatPickerStatus.textContent = mine ? `当前 ${mine.seatIndex + 1} 号位 · 点击空位可换座` : '点击空位即可换座';
+  for (let index = 0; index < 4; index += 1) {
+    const player = bySeat.get(index);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `lobby-seat${player ? ' occupied' : ' vacant'}${player && player.id === myId ? ' mine' : ''}`;
+    button.dataset.seatIndex = String(index);
+    button.disabled = Boolean(player && player.id !== myId);
+    button.setAttribute('aria-label', player ? `${index + 1} 号位，${player.name}${player.id === myId ? '，我的座位' : '，已占用'}` : `${index + 1} 号位，空位，点击换座`);
+    button.innerHTML = `<span class="seat-number">${String(index + 1).padStart(2, '0')}</span><strong>${player ? escapeHtml(player.name) : '空位'}</strong><small>${player ? (player.id === myId ? '我的位置' : '已占用') : '点击换座'}</small>`;
+    if (!player) button.addEventListener('click', () => {
+      elements.seatPickerStatus.textContent = `正在换到 ${index + 1} 号位…`;
+      button.classList.add('pending');
+      socket.emit('chooseSeat', index);
+    });
+    elements.lobbySeats.appendChild(button);
+  }
+}
+
 function renderSeats() {
   elements.seats.replaceChildren();
   if (!state) return;
   elements.roomInfo.textContent = `房间 ${state.roomCode || '公共房'} · ${state.players.length}/4`;
-  const count = state.players.length;
   state.players.forEach((player, index) => {
     const seat = document.createElement('div');
     seat.className = 'seat';
@@ -156,7 +179,7 @@ function renderSeats() {
     if (player.id === myId) seat.classList.add('my-seat');
     if (!player.alive) seat.classList.add('dead');
     if (state.turnIndex === index && !state.gameOver) seat.classList.add('active');
-    const slot = (SEAT_LAYOUTS[count] || SEAT_LAYOUTS[4])[index];
+    const slot = SEAT_LAYOUTS[4][Number.isInteger(player.seatIndex) ? player.seatIndex : index];
     seat.style.left = `${slot.left}%`;
     seat.style.top = `${slot.top}%`;
 
@@ -348,7 +371,7 @@ function updateControls() {
 }
 
 function renderAll() {
-  showAppropriateScreen(); renderSeats(); renderCenter(); renderFlow(); renderPlayHistory(); renderMyArea(); updateControls(); updateReadyUi();
+  showAppropriateScreen(); renderLobbySeats(); renderSeats(); renderCenter(); renderFlow(); renderPlayHistory(); renderMyArea(); updateControls(); updateReadyUi();
 }
 
 function syncModalInert() {
@@ -461,8 +484,9 @@ function playNextRoulette() {
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   elements.rouletteEyebrow.textContent = data.isDevil ? '恶魔牌触发' : data.challengeSuccess ? '质疑成功' : '质疑失败';
   elements.rouletteName.textContent = `${data.victimName} 接受轮盘`;
-  elements.rouletteResult.textContent = '转动弹巢…';
-  elements.rouletteOverlay.classList.remove('shot', 'safe');
+  elements.rouletteResult.textContent = '装入 1 枚实弹';
+  elements.rouletteOverlay.classList.remove('shot', 'safe', 'phase-load', 'phase-spin', 'phase-trigger');
+  elements.rouletteOverlay.classList.add('phase-load');
   elements.rouletteOverlay.classList.add('open');
   elements.rouletteOverlay.setAttribute('aria-hidden', 'false');
   if (elements.flowBanner) {
@@ -471,35 +495,53 @@ function playNextRoulette() {
     elements.flowDetail.textContent = `${data.victimName} 正在扣动扳机`;
     elements.flowBanner.dataset.step = '03';
   }
+  const revealDelay = reducedMotion ? 80 : 2050;
   if (!reducedMotion && window.anime && typeof window.anime.animate === 'function') {
-    window.anime.animate(elements.rouletteCylinder, { rotate:'2.25turn', scale:[0.9,1], duration:900, ease:'out(4)' });
-    window.anime.animate(elements.rouletteCylinder.querySelectorAll('i'), { scale:[0.65,1], opacity:[0.35,1], delay:window.anime.stagger(55), duration:430, ease:'out(3)' });
+    window.anime.animate(elements.revolver.querySelector('.cartridge'), { x:[42,0], opacity:[0,1], duration:420, ease:'out(4)' });
+    window.anime.animate(elements.revolver.querySelector('.revolver-frame'), { y:[2,0], duration:420, ease:'out(3)' });
   }
+  window.setTimeout(() => {
+    elements.rouletteOverlay.classList.remove('phase-load');
+    elements.rouletteOverlay.classList.add('phase-spin');
+    elements.rouletteResult.textContent = '弹巢旋转 · 结果未知';
+    if (!reducedMotion && window.anime && typeof window.anime.animate === 'function') {
+      window.anime.animate(elements.rouletteCylinder, { rotate:'3.75turn', duration:920, ease:'out(5)' });
+    }
+  }, reducedMotion ? 20 : 480);
+  window.setTimeout(() => {
+    elements.rouletteOverlay.classList.remove('phase-spin');
+    elements.rouletteOverlay.classList.add('phase-trigger');
+    elements.rouletteResult.textContent = '击锤锁定 · 扣动扳机';
+    if (!reducedMotion && window.anime && typeof window.anime.animate === 'function') {
+      window.anime.animate(elements.revolver.querySelector('.revolver-frame'), { x:[0,-2,2,0], duration:260, ease:'inOut(2)' });
+    }
+  }, reducedMotion ? 45 : 1540);
   if (seat) {
     seat.classList.add('risk');
     window.setTimeout(() => {
       seat.classList.remove('risk');
       seat.classList.add(data.isShot ? 'shot' : 'safe');
       window.setTimeout(() => seat.classList.remove('shot', 'safe'), 800);
-    }, 520);
+    }, reducedMotion ? 40 : 1540);
   }
   window.setTimeout(() => {
+    elements.rouletteOverlay.classList.remove('phase-trigger');
     elements.rouletteOverlay.classList.add(data.isShot ? 'shot' : 'safe');
-    elements.rouletteResult.textContent = data.isShot ? '实弹 · 出局' : `空枪 · 弹巢剩余 ${data.remaining} 格`;
+    elements.rouletteResult.textContent = data.isShot ? '击发 · 实弹 · 出局' : `咔哒 · 空枪 · 剩余 ${data.remaining} 格`;
     if (!reducedMotion && window.anime && typeof window.anime.animate === 'function') {
       window.anime.animate('.roulette-stage', data.isShot
-        ? { x:[-7,7,-5,5,0], duration:430, ease:'inOut(2)' }
-        : { scale:[0.98,1.02,1], duration:500, ease:'out(3)' });
+        ? { x:[-10,9,-7,6,0], scale:[1,1.018,1], duration:460, ease:'inOut(2)' }
+        : { y:[0,3,0], duration:360, ease:'out(3)' });
     }
     showToast(data.isShot ? `${data.victimName} 中弹出局` : `${data.victimName} 扣下空枪，幸存`, data.isShot ? 'bad' : 'good');
-  }, reducedMotion ? 40 : 920);
+  }, revealDelay);
   window.setTimeout(() => {
-    elements.rouletteOverlay.classList.remove('open', 'shot', 'safe');
+    elements.rouletteOverlay.classList.remove('open', 'shot', 'safe', 'phase-load', 'phase-spin', 'phase-trigger');
     elements.rouletteOverlay.setAttribute('aria-hidden', 'true');
     renderFlow();
     rouletteAnimating = false;
     playNextRoulette();
-  }, reducedMotion ? 900 : 2300);
+  }, reducedMotion ? 950 : 3300);
 }
 
 function applyAppearance() {
@@ -585,6 +627,11 @@ socket.on('myCards', (cards) => {
 });
 socket.on('diceReveal', renderReveal);
 socket.on('rouletteResult', animateRoulette);
+socket.on('seatResult', (data) => {
+  if (!data) return;
+  elements.seatPickerStatus.textContent = data.message || (data.ok ? '换座成功。' : '无法换座。');
+  showToast(elements.seatPickerStatus.textContent, data.ok ? 'good' : 'bad');
+});
 socket.on('newCardRound', (data) => {
   const meta = CARD_META[data.target];
   log(`新一轮目标牌：${meta ? meta.cn : data.target}`, 'sys');

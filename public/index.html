@@ -28,6 +28,13 @@
       <h1 id="lobbyTitle">LIAR'S TABLE</h1>
       <div class="sub" id="lobbyRoomLine">房间号 <strong id="lobbyRoomCode">—</strong></div>
       <button class="copy-link" id="copyInviteBtn" type="button">复制邀请链接</button>
+      <section class="seat-picker" aria-labelledby="seatPickerTitle">
+        <div class="seat-picker-head">
+          <strong id="seatPickerTitle">选择座位</strong>
+          <span id="seatPickerStatus">点击空位即可换座</span>
+        </div>
+        <div class="lobby-seats" id="lobbySeats" role="group" aria-label="房间座位"></div>
+      </section>
       <div class="mode-row">
         <button class="btn btn-primary" id="startDiceBtn" type="button">开始骰子模式</button>
         <button class="btn btn-secondary" id="startCardBtn" type="button">开始卡牌模式</button>
@@ -138,9 +145,19 @@
   <div class="roulette-overlay" id="rouletteOverlay" aria-hidden="true">
     <section class="roulette-stage" aria-live="assertive">
       <div class="roulette-eyebrow" id="rouletteEyebrow">质疑结算</div>
-      <div class="roulette-cylinder" id="rouletteCylinder" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="revolver" id="revolver" aria-hidden="true">
+        <div class="revolver-barrel"></div>
+        <div class="revolver-frame">
+          <div class="roulette-cylinder" id="rouletteCylinder"><i></i><i></i><i></i><i></i><i></i><i></i><b class="live-round"></b></div>
+          <div class="revolver-hammer"></div>
+          <div class="revolver-trigger"></div>
+        </div>
+        <div class="revolver-grip"></div>
+        <div class="cartridge"><i></i><span>LIVE</span></div>
+      </div>
       <strong class="roulette-name" id="rouletteName">等待轮盘</strong>
-      <div class="roulette-result" id="rouletteResult">转动弹巢</div>
+      <div class="roulette-result" id="rouletteResult">装入实弹</div>
+      <div class="roulette-timeline" aria-hidden="true"><i></i><i></i><i></i></div>
     </section>
   </div>
   <div class="toast-layer" id="toastLayer" aria-live="assertive"></div>
