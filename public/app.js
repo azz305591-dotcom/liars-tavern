@@ -2,8 +2,8 @@ const socket = io();
 const $ = (id) => document.getElementById(id);
 const elements = {
   joinScreen: $('joinScreen'), lobbyScreen: $('lobbyScreen'), gameScreen: $('gameScreen'),
-  nameInput: $('nameInput'), joinBtn: $('joinBtn'), joinHint: $('joinHint'),
-  lobbyInfo: $('lobbyInfo'), lobbyHint: $('lobbyHint'), startDiceBtn: $('startDiceBtn'), startCardBtn: $('startCardBtn'),
+  nameInput: $('nameInput'), roomInput: $('roomInput'), createBtn: $('createBtn'), joinBtn: $('joinBtn'), joinHint: $('joinHint'),
+  lobbyInfo: $('lobbyInfo'), lobbyHint: $('lobbyHint'), lobbyRoomCode: $('lobbyRoomCode'), copyInviteBtn: $('copyInviteBtn'), leaveLobbyBtn: $('leaveLobbyBtn'), startDiceBtn: $('startDiceBtn'), startCardBtn: $('startCardBtn'),
   modeBadge: $('modeBadge'), roomInfo: $('roomInfo'), seats: $('seats'), centerLabel: $('centerLabel'),
   centerValue: $('centerValue'), turnInfo: $('turnInfo'), wildStatus: $('wildStatus'), returnLobbyBtn: $('returnLobbyBtn'),
   myName: $('myName'), myAreaLabel: $('myAreaLabel'), myDiceRow: $('myDiceRow'), myCardRow: $('myCardRow'), myEmptyTip: $('myEmptyTip'),
@@ -12,7 +12,7 @@ const elements = {
   playBtn: $('playBtn'), doubtCardBtn: $('doubtCardBtn'), log: $('log'), connectionState: $('connectionState'), roundReveal: $('roundReveal'),
   rulesBtn: $('rulesBtn'), resultsBtn: $('resultsBtn'), rulesOverlay: $('rulesOverlay'), rulesCloseBtn: $('rulesCloseBtn'), rulesTitle: $('rulesTitle'), rulesBody: $('rulesBody'),
   leaderboardOverlay: $('leaderboardOverlay'), leaderboardCloseBtn: $('leaderboardCloseBtn'), leaderboardSummary: $('leaderboardSummary'), leaderboardList: $('leaderboardList'), leaderboardLobbyBtn: $('leaderboardLobbyBtn'),
-  appearanceBtn: $('appearanceBtn'), appearancePanel: $('appearancePanel'), bgColorInput: $('bgColorInput'), bgOpacityInput: $('bgOpacityInput'), bgOpacityOutput: $('bgOpacityOutput'), brightnessInput: $('brightnessInput'), brightnessOutput: $('brightnessOutput'),
+  appearanceBtn: $('appearanceBtn'), appearancePanel: $('appearancePanel'), bgColorInput: $('bgColorInput'), bgOpacityInput: $('bgOpacityInput'), bgOpacityOutput: $('bgOpacityOutput'), brightnessInput: $('brightnessInput'), brightnessOutput: $('brightnessOutput'), resetAppearanceBtn: $('resetAppearanceBtn'), leaveGameBtn: $('leaveGameBtn'),
   toastLayer: $('toastLayer')
 };
 
@@ -26,6 +26,27 @@ let bidAction = 'normal';
 let rulesInvoker = null;
 let revealTimer = null;
 let lastResults = null;
+let myRoomId = '';
+let myNameText = '';
+let joinPending = false;
+let joinTimer = null;
+
+function getDeviceId() {
+  try {
+    let value = localStorage.getItem('liars-device-id');
+    if (!value) {
+      value = `device-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
+      localStorage.setItem('liars-device-id', value);
+    }
+    return value;
+  } catch (_) {
+    return `device-${Math.random().toString(36).slice(2)}`;
+  }
+}
+const deviceId = getDeviceId();
+try { elements.nameInput.value = localStorage.getItem('liars-name') || ''; } catch (_) {}
+const invitedRoom = new URLSearchParams(location.search).get('room');
+if (invitedRoom) elements.roomInput.value = invitedRoom.replace(/\D/g, '').slice(0, 6);
 
 const FACE_GLYPH = { 1: '⚀', 2: '⚁', 3: '⚂', 4: '⚃', 5: '⚄', 6: '⚅' };
 const cardIcon = (content) => `<svg class="card-symbol" viewBox="0 0 24 24" aria-hidden="true">${content}</svg>`;
@@ -103,7 +124,11 @@ function showAppropriateScreen() {
   if (joined && state && !state.gameMode) {
     const ready = state.players.length >= 2;
     elements.lobbyInfo.innerHTML = `已加入 <b>${state.players.length}</b>/4${ready ? '，可以开局了' : '，等待其他玩家…'}`;
-    elements.lobbyHint.textContent = ready ? '任意玩家都可以选择本局模式' : '至少 2 人才能开局';
+    const isHost = state.hostId === myId;
+    elements.lobbyRoomCode.textContent = state.roomCode || myRoomId || '—';
+    elements.startDiceBtn.disabled = !ready || !isHost;
+    elements.startCardBtn.disabled = !ready || !isHost;
+    elements.lobbyHint.textContent = !isHost ? '等待房主选择玩法并开始' : ready ? '请选择玩法开始本局' : '至少 2 人才能开局';
   }
 }
 
@@ -138,6 +163,8 @@ function renderSeats() {
 function renderCenter() {
   if (!state) return;
   elements.returnLobbyBtn.hidden = !state.gameOver;
+  elements.returnLobbyBtn.disabled = Boolean(state.gameOver && state.hostId !== myId);
+  elements.returnLobbyBtn.textContent = state.hostId === myId ? '返回大厅' : '等待房主返回大厅';
   if (state.gameMode === 'card') {
     elements.centerLabel.textContent = '本轮目标牌';
     const meta = CARD_META[state.targetCard];
@@ -243,7 +270,7 @@ function updateControls() {
   elements.doubtBtn.disabled = !myTurn || !state.currentBid;
   const hasBid = Boolean(state.currentBid);
   const wild = state.onesWild !== false;
-  elements.exactBtn.disabled = !myTurn || !hasBid || !wild;
+  elements.exactBtn.disabled = !myTurn || !wild;
   elements.flyBtn.disabled = !myTurn || !hasBid || wild;
   elements.exactBtn.setAttribute('aria-pressed', String(bidAction === 'exact'));
   elements.flyBtn.setAttribute('aria-pressed', String(bidAction === 'fly'));
@@ -305,6 +332,9 @@ function closeRules() {
 function renderLeaderboard(data) {
   lastResults = data;
   elements.resultsBtn.hidden = false;
+  const canReturn = Boolean(state && state.hostId === myId);
+  elements.leaderboardLobbyBtn.disabled = !canReturn;
+  elements.leaderboardLobbyBtn.textContent = canReturn ? '返回大厅' : '等待房主返回大厅';
   const winner = (data.rankings || []).find((player) => player.id === data.winnerId);
   elements.leaderboardSummary.textContent = winner ? `${winner.name} 获得本局第一名；排名按存活与淘汰顺序计算。` : '本局无人幸存；排名按淘汰先后与本局表现计算。';
   const header = '<div class="leaderboard-row header"><span>名次</span><span>玩家</span><span>结果</span><span>质疑</span><span>行动</span><span>轮盘</span></div>';
@@ -377,22 +407,33 @@ function applyAppearance() {
 }
 
 function restoreAppearance() {
-  elements.bgColorInput.value = localStorage.getItem('liars-bg-color') || '#23382f';
+  elements.bgColorInput.value = localStorage.getItem('liars-bg-color') || '#dfe8df';
   elements.bgOpacityInput.value = localStorage.getItem('liars-bg-opacity') || '0';
   elements.brightnessInput.value = localStorage.getItem('liars-window-brightness') || '100';
   applyAppearance();
 }
 
 socket.on('connect', () => {
-  myId = socket.id;
   elements.connectionState.textContent = '已连接';
   elements.connectionState.classList.remove('offline');
   log('已连接服务器。', 'sys');
+  if (joined && myRoomId) socket.emit('joinRoom', myRoomId, myNameText, deviceId);
 });
 socket.on('joined', (data) => {
+  clearTimeout(joinTimer);
+  joinPending = false;
+  if (!data || data.ok === false) {
+    elements.createBtn.disabled = false;
+    elements.joinBtn.disabled = false;
+    elements.joinHint.textContent = data && data.message ? data.message : '无法加入房间，请检查房间号。';
+    return;
+  }
   joined = true;
-  myId = data.id || socket.id;
+  myId = data.playerId;
+  myRoomId = data.roomId;
+  myNameText = data.name;
   elements.myName.textContent = data.name;
+  elements.createBtn.disabled = false;
   elements.joinBtn.disabled = false;
   elements.joinHint.textContent = '';
   showAppropriateScreen();
@@ -444,7 +485,9 @@ socket.on('msg', (text) => {
   else if (/结束|获胜|空枪|属实|成功/.test(text)) kind = 'good';
   else if (/加入|离开|开始|新一轮|摘|飞/.test(text)) kind = 'sys';
   log(text, kind);
-  if (/房间已满|对局进行中/.test(text)) {
+  if (/房间已满|不存在|无法加入/.test(text)) {
+    joinPending = false;
+    elements.createBtn.disabled = false;
     elements.joinBtn.disabled = false;
     elements.joinHint.textContent = text;
   }
@@ -456,18 +499,49 @@ socket.on('disconnect', () => {
   [elements.bidBtn, elements.doubtBtn, elements.playBtn, elements.doubtCardBtn, elements.exactBtn, elements.flyBtn].forEach((button) => { button.disabled = true; });
 });
 
-function join() {
+function submitRoom(action) {
   const name = elements.nameInput.value.trim();
   if (!name) { elements.joinHint.textContent = '请输入昵称。'; return; }
-  elements.joinHint.textContent = '正在进入酒馆…';
+  if (joinPending) return;
+  const roomCode = elements.roomInput.value.trim();
+  if (action === 'joinRoom' && !/^\d{4,6}$/.test(roomCode)) { elements.joinHint.textContent = '请输入 4–6 位房间号。'; return; }
+  joinPending = true;
+  myNameText = name;
+  try { localStorage.setItem('liars-name', name); } catch (_) {}
+  elements.joinHint.textContent = action === 'createRoom' ? '正在创建房间…' : '正在加入房间…';
+  elements.createBtn.disabled = true;
   elements.joinBtn.disabled = true;
-  socket.emit('join', name);
+  if (action === 'createRoom') socket.emit('createRoom', name, deviceId);
+  else socket.emit('joinRoom', roomCode, name, deviceId);
+  joinTimer = window.setTimeout(() => {
+    if (!joined) {
+      joinPending = false;
+      elements.createBtn.disabled = false;
+      elements.joinBtn.disabled = false;
+      elements.joinHint.textContent = '连接超时，请检查网络后重试。';
+    }
+  }, 7000);
 }
 
-elements.joinBtn.addEventListener('click', join);
-elements.nameInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') join(); });
+elements.createBtn.addEventListener('click', () => submitRoom('createRoom'));
+elements.joinBtn.addEventListener('click', () => submitRoom('joinRoom'));
+elements.nameInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') submitRoom(elements.roomInput.value ? 'joinRoom' : 'createRoom'); });
+elements.roomInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') submitRoom('joinRoom'); });
 elements.startDiceBtn.addEventListener('click', () => { elements.lobbyHint.textContent = '正在开局…'; socket.emit('startGame', 'dice'); });
 elements.startCardBtn.addEventListener('click', () => { elements.lobbyHint.textContent = '正在开局…'; socket.emit('startGame', 'card'); });
+function leaveRoom() { socket.emit('leaveRoom'); }
+elements.leaveLobbyBtn.addEventListener('click', leaveRoom);
+elements.leaveGameBtn.addEventListener('click', leaveRoom);
+elements.copyInviteBtn.addEventListener('click', async () => {
+  const link = `${location.origin}${location.pathname}?room=${myRoomId}`;
+  try { await navigator.clipboard.writeText(link); showToast('邀请链接已复制', 'good'); }
+  catch (_) { showToast(`房间号：${myRoomId}`); }
+});
+socket.on('left', () => {
+  joined = false; myId = null; myRoomId = ''; state = null; myDice = []; myCards = []; selectedCards = [];
+  elements.joinScreen.hidden = false; elements.lobbyScreen.hidden = true; elements.gameScreen.hidden = true;
+  history.replaceState(null, '', location.pathname);
+});
 elements.exactBtn.addEventListener('click', () => { bidAction = bidAction === 'exact' ? 'normal' : 'exact'; updateControls(); });
 elements.flyBtn.addEventListener('click', () => { bidAction = bidAction === 'fly' ? 'normal' : 'fly'; updateControls(); });
 elements.faceSel.addEventListener('change', () => {
@@ -515,4 +589,7 @@ document.addEventListener('click', (event) => {
 elements.bgColorInput.addEventListener('input', applyAppearance);
 elements.bgOpacityInput.addEventListener('input', applyAppearance);
 elements.brightnessInput.addEventListener('input', applyAppearance);
+elements.resetAppearanceBtn.addEventListener('click', () => {
+  elements.bgColorInput.value = '#dfe8df'; elements.bgOpacityInput.value = '0'; elements.brightnessInput.value = '100'; applyAppearance();
+});
 restoreAppearance();

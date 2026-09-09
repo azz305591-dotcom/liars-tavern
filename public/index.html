@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#24170f">
+  <meta name="theme-color" content="#eef1ed">
   <title>骗子酒馆 · Liar's Tavern</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
@@ -11,9 +11,14 @@
   <section class="screen-overlay" id="joinScreen" aria-labelledby="joinTitle">
     <div class="entry-card">
       <h1 id="joinTitle">骗子酒馆</h1>
-      <div class="sub">LIAR'S TAVERN · 骰子与卡牌骗术对决</div>
+      <div class="sub">一个低调的多人在线小游戏</div>
       <input id="nameInput" type="text" maxlength="8" placeholder="输入你的昵称" autocomplete="off" aria-label="昵称">
-      <button class="btn btn-gold" id="joinBtn" type="button">进入酒馆</button>
+      <button class="btn btn-primary" id="createBtn" type="button">创建房间</button>
+      <div class="join-divider"><span>或加入已有房间</span></div>
+      <div class="join-row">
+        <input id="roomInput" type="text" inputmode="numeric" maxlength="6" placeholder="输入房间号" autocomplete="off" aria-label="房间号">
+        <button class="btn btn-secondary" id="joinBtn" type="button">加入</button>
+      </div>
       <div class="hint" id="joinHint" role="status"></div>
     </div>
   </section>
@@ -21,14 +26,16 @@
   <section class="screen-overlay" id="lobbyScreen" hidden aria-labelledby="lobbyTitle">
     <div class="entry-card">
       <h1 id="lobbyTitle">骗子酒馆</h1>
-      <div class="sub">选择本局玩法</div>
+      <div class="sub" id="lobbyRoomLine">房间号 <strong id="lobbyRoomCode">—</strong></div>
+      <button class="copy-link" id="copyInviteBtn" type="button">复制邀请链接</button>
       <div class="mode-row">
-        <button class="btn btn-gold" id="startDiceBtn" type="button">骰子模式</button>
-        <button class="btn btn-green" id="startCardBtn" type="button">卡牌模式</button>
+        <button class="btn btn-primary" id="startDiceBtn" type="button">开始骰子模式</button>
+        <button class="btn btn-secondary" id="startCardBtn" type="button">开始卡牌模式</button>
       </div>
       <div class="mode-desc">骰子：报价、摘飞与真假豹子<br>卡牌：目标牌、魔术师与恶魔轮盘</div>
       <div class="lobby-info" id="lobbyInfo">已加入 <b>1</b>/4，等待其他玩家…</div>
       <div class="hint" id="lobbyHint">至少 2 人才能开局</div>
+      <button class="text-btn" id="leaveLobbyBtn" type="button">离开房间</button>
     </div>
   </section>
 
@@ -43,13 +50,7 @@
           <span class="room-info" id="roomInfo">房间 — · 0/4</span>
           <button class="icon-btn" id="rulesBtn" type="button">规则</button>
           <button class="icon-btn" id="resultsBtn" type="button" hidden>结算</button>
-          <button class="icon-btn" id="appearanceBtn" type="button" aria-expanded="false" aria-controls="appearancePanel">外观</button>
-          <div class="appearance-panel" id="appearancePanel" hidden>
-            <div class="appearance-title">全窗口摸鱼遮罩</div>
-            <label>窗口色调 <input id="bgColorInput" type="color" value="#23382f" aria-label="全窗口色调"></label>
-            <label>遮罩透明度 <span><input id="bgOpacityInput" type="range" min="0" max="85" value="0" aria-label="全窗口遮罩透明度"> <output id="bgOpacityOutput">0%</output></span></label>
-            <label>窗口明度 <span><input id="brightnessInput" type="range" min="55" max="125" value="100" aria-label="全窗口明度"> <output id="brightnessOutput">100%</output></span></label>
-          </div>
+          <button class="icon-btn" id="leaveGameBtn" type="button">离开</button>
         </div>
       </header>
 
@@ -124,6 +125,17 @@
   </div>
   <div class="toast-layer" id="toastLayer" aria-live="assertive"></div>
   <div class="window-filter" id="windowFilter" aria-hidden="true"></div>
+
+  <div class="display-settings">
+    <button class="display-settings-btn" id="appearanceBtn" type="button" aria-expanded="false" aria-controls="appearancePanel">显示设置</button>
+    <div class="appearance-panel" id="appearancePanel" hidden>
+      <div class="appearance-title">整页显示</div>
+      <label>页面色调 <input id="bgColorInput" type="color" value="#dfe8df" aria-label="整页色调"></label>
+      <label>色调强度 <span><input id="bgOpacityInput" type="range" min="0" max="85" value="0" aria-label="整页色调强度"> <output id="bgOpacityOutput">0%</output></span></label>
+      <label>整体明度 <span><input id="brightnessInput" type="range" min="45" max="115" value="100" aria-label="整页明度"> <output id="brightnessOutput">100%</output></span></label>
+      <button class="reset-display" id="resetAppearanceBtn" type="button">恢复默认</button>
+    </div>
+  </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/app.js"></script>
