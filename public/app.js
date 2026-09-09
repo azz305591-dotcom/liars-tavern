@@ -340,7 +340,13 @@ function renderMyArea(animateDice = false) {
       if (!isMyTurn()) { log('还没轮到你。', 'sys'); return; }
       const selectedIndex = selectedCards.indexOf(cardIndex);
       if (selectedIndex >= 0) selectedCards.splice(selectedIndex, 1);
-      else if (selectedCards.length < 3) selectedCards.push(cardIndex);
+      else if (cardType === 'devil') {
+        selectedCards = [cardIndex];
+        showToast('恶魔牌必须单独打出', 'bad');
+      } else if (selectedCards.some((index) => myCards[index] === 'devil')) {
+        selectedCards = [cardIndex];
+        showToast('已取消恶魔牌；恶魔不能与其他牌混出', 'bad');
+      } else if (selectedCards.length < 3) selectedCards.push(cardIndex);
       else log('每次最多选择 3 张牌。', 'sys');
       renderMyArea();
       updateControls();
@@ -738,7 +744,12 @@ elements.bidBtn.addEventListener('click', () => {
 elements.doubtBtn.addEventListener('click', () => socket.emit('doubt'));
 elements.playBtn.addEventListener('click', () => {
   if (!selectedCards.length) return;
-  socket.emit('playCards', selectedCards.map((index) => myCards[index]));
+  const cards = selectedCards.map((index) => myCards[index]);
+  if (cards.includes('devil') && cards.length !== 1) {
+    showToast('恶魔牌必须单独打出', 'bad');
+    return;
+  }
+  socket.emit('playCards', cards);
   selectedCards = [];
 });
 elements.doubtCardBtn.addEventListener('click', () => socket.emit('doubtCard'));

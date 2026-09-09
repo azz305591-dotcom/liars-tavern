@@ -154,6 +154,16 @@ function aliveTurnIndex(players, currentIndex) {
   return -1;
 }
 
+function validateCardSelection(cards) {
+  if (!Array.isArray(cards) || cards.length < 1 || cards.length > 3) {
+    return { valid: false, reason: '每次必须打出 1–3 张牌' };
+  }
+  if (cards.includes('devil') && cards.length !== 1) {
+    return { valid: false, reason: '恶魔牌必须单独打出，不能与其他牌混出' };
+  }
+  return { valid: true, reason: '' };
+}
+
 function readBid(bid) {
   if (Array.isArray(bid)) return { quantity: bid[0], face: bid[1] };
   if (bid && typeof bid === 'object') {
@@ -248,5 +258,6 @@ module.exports = {
   pullRevolver,
   revolverPublicState,
   aliveTurnIndex,
+  validateCardSelection,
   validateBidTransition
 };

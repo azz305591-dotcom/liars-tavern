@@ -3,7 +3,7 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { checkDiceBid, classifyDiceHand, rerollDice, validateBidTransition, createRevolver, pullRevolver, revolverPublicState, aliveTurnIndex } = require('./game-logic');
+const { checkDiceBid, classifyDiceHand, rerollDice, validateBidTransition, createRevolver, pullRevolver, revolverPublicState, aliveTurnIndex, validateCardSelection } = require('./game-logic');
 
 const app = express();
 const server = http.createServer(app);
@@ -275,7 +275,8 @@ io.on('connection',socket=>{
   socket.on('playCards',cards=>{
     const state=roomFor(socket); if(!state||state.gameMode!=='card'||state.gameOver) return;
     const i=state.players.findIndex(p=>p.id===socket.data.playerId); if(i<0||i!==state.turnIndex||!state.players[i].alive) return;
-    if(!Array.isArray(cards)||cards.length<1||cards.length>3){socket.emit('msg','每次出牌 1–3 张，恶魔只能单出。');return;}
+    const selection=validateCardSelection(cards);
+    if(!selection.valid){socket.emit('msg',selection.reason);return;}
     const hand=state.players[i].cards.slice();
     for(const c of cards){const pos=hand.indexOf(c);if(pos<0){socket.emit('msg','你手里没有这张牌。');return;}hand.splice(pos,1);}
     state.players[i].cards=hand; state.players[i].stats.cardsPlayed+=cards.length;

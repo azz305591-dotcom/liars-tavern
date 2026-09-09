@@ -13,6 +13,7 @@ const {
   pullRevolver,
   revolverPublicState,
   aliveTurnIndex,
+  validateCardSelection,
   validateBidTransition
 } = require('../game-logic');
 
@@ -62,6 +63,14 @@ test('当前玩家出局后回合自动顺延到下一位存活玩家', () => {
   assert.equal(aliveTurnIndex(players, 3), 3);
   assert.equal(aliveTurnIndex(players, 6), 3);
   assert.equal(aliveTurnIndex(players.map((player) => ({ ...player, alive: false })), 1), -1);
+});
+
+test('恶魔牌必须单出，服务端拒绝任何混出组合', () => {
+  assert.deepEqual(validateCardSelection(['devil']), { valid: true, reason: '' });
+  assert.equal(validateCardSelection(['devil', 'sun']).valid, false);
+  assert.equal(validateCardSelection(['moon', 'devil', 'joker']).valid, false);
+  assert.match(validateCardSelection(['devil', 'star']).reason, /不能与其他牌混出/);
+  assert.equal(validateCardSelection(['sun', 'moon', 'star']).valid, true);
 });
 
 test('普通骰在飞时将 1 当万能数，摘后只按实际点数计算', () => {
