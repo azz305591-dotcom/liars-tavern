@@ -1,6 +1,7 @@
 'use strict';
 
 const DICE_PER_HAND = 5;
+const REVOLVER_CHAMBERS = 6;
 
 function assertFace(face) {
   if (!Number.isInteger(face) || face < 1 || face > 6) {
@@ -116,6 +117,32 @@ function rerollDice(players, rng = Math.random) {
   ));
 }
 
+function createRevolver(rng = Math.random) {
+  if (typeof rng !== 'function') throw new TypeError('随机数生成器必须是函数');
+  const randomValue = rng();
+  if (!Number.isFinite(randomValue) || randomValue < 0 || randomValue >= 1) {
+    throw new RangeError('随机数生成器必须返回 [0, 1) 范围内的数');
+  }
+  return { bulletAt: Math.floor(randomValue * REVOLVER_CHAMBERS) + 1, pulls: 0 };
+}
+
+function pullRevolver(revolver) {
+  if (!revolver || !Number.isInteger(revolver.bulletAt) || revolver.bulletAt < 1 || revolver.bulletAt > REVOLVER_CHAMBERS) {
+    throw new TypeError('弹巢状态无效');
+  }
+  const pulls = Math.min(REVOLVER_CHAMBERS, (Number.isInteger(revolver.pulls) ? revolver.pulls : 0) + 1);
+  return {
+    revolver: { bulletAt: revolver.bulletAt, pulls },
+    isShot: pulls >= revolver.bulletAt,
+    remaining: Math.max(0, REVOLVER_CHAMBERS - pulls)
+  };
+}
+
+function revolverPublicState(revolver) {
+  const pulls = revolver && Number.isInteger(revolver.pulls) ? revolver.pulls : 0;
+  return { chambers: REVOLVER_CHAMBERS, remaining: Math.max(0, REVOLVER_CHAMBERS - pulls) };
+}
+
 function readBid(bid) {
   if (Array.isArray(bid)) return { quantity: bid[0], face: bid[1] };
   if (bid && typeof bid === 'object') {
@@ -199,11 +226,15 @@ function validateBidTransition(previousBid, nextBid, onesWild = true) {
 
 module.exports = {
   DICE_PER_HAND,
+  REVOLVER_CHAMBERS,
   classifyDiceHand,
   getHandContribution,
   countBidDice,
   checkDiceBid,
   createDice,
   rerollDice,
+  createRevolver,
+  pullRevolver,
+  revolverPublicState,
   validateBidTransition
 };

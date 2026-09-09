@@ -9,6 +9,9 @@ const {
   checkDiceBid,
   createDice,
   rerollDice,
+  createRevolver,
+  pullRevolver,
+  revolverPublicState,
   validateBidTransition
 } = require('../game-logic');
 
@@ -24,6 +27,27 @@ test('识别普通骰、假豹子和真豹子', () => {
   });
   assert.equal(classifyDiceHand([2, 1, 1, 1, 1]).kind, 'ordinary');
   assert.equal(classifyDiceHand([2, 2, 3, 1, 1]).kind, 'ordinary');
+});
+
+test('轮盘为每位玩家保存真实弹巢进度，且不向前端泄露子弹位置', () => {
+  let revolver = createRevolver(() => 0.49);
+  assert.deepEqual(revolver, { bulletAt: 3, pulls: 0 });
+  assert.deepEqual(revolverPublicState(revolver), { chambers: 6, remaining: 6 });
+
+  let result = pullRevolver(revolver);
+  assert.equal(result.isShot, false);
+  assert.equal(result.remaining, 5);
+  revolver = result.revolver;
+
+  result = pullRevolver(revolver);
+  assert.equal(result.isShot, false);
+  revolver = result.revolver;
+
+  result = pullRevolver(revolver);
+  assert.equal(result.isShot, true);
+  assert.equal(result.remaining, 3);
+  assert.deepEqual(revolverPublicState(result.revolver), { chambers: 6, remaining: 3 });
+  assert.equal('bulletAt' in revolverPublicState(result.revolver), false);
 });
 
 test('普通骰在飞时将 1 当万能数，摘后只按实际点数计算', () => {

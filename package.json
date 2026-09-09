@@ -1,7 +1,7 @@
 {
   "name": "liars-tavern",
   "version": "1.0.0",
-  "description": "骗子酒馆 - 联机骰子游戏（Socket.IO）",
+  "description": "Liar's Table - a discreet multiplayer bluffing game",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

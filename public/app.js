@@ -6,12 +6,15 @@ const elements = {
   lobbyInfo: $('lobbyInfo'), lobbyHint: $('lobbyHint'), lobbyRoomCode: $('lobbyRoomCode'), copyInviteBtn: $('copyInviteBtn'), leaveLobbyBtn: $('leaveLobbyBtn'), startDiceBtn: $('startDiceBtn'), startCardBtn: $('startCardBtn'),
   modeBadge: $('modeBadge'), roomInfo: $('roomInfo'), seats: $('seats'), centerLabel: $('centerLabel'),
   centerValue: $('centerValue'), turnInfo: $('turnInfo'), wildStatus: $('wildStatus'), returnLobbyBtn: $('returnLobbyBtn'),
+  flowBanner: $('flowBanner'), flowIndex: $('flowIndex'), flowTitle: $('flowTitle'), flowDetail: $('flowDetail'),
   myName: $('myName'), myAreaLabel: $('myAreaLabel'), myDiceRow: $('myDiceRow'), myCardRow: $('myCardRow'), myEmptyTip: $('myEmptyTip'),
   diceControls: $('diceControls'), cardControls: $('cardControls'), diceHint: $('diceHint'), cardHint: $('cardHint'),
   cntSel: $('cntSel'), faceSel: $('faceSel'), exactBtn: $('exactBtn'), flyBtn: $('flyBtn'), bidBtn: $('bidBtn'), doubtBtn: $('doubtBtn'),
   playBtn: $('playBtn'), doubtCardBtn: $('doubtCardBtn'), log: $('log'), connectionState: $('connectionState'), roundReveal: $('roundReveal'),
+  historyPanel: $('historyPanel'), historyRound: $('historyRound'), playHistory: $('playHistory'),
   rulesBtn: $('rulesBtn'), resultsBtn: $('resultsBtn'), rulesOverlay: $('rulesOverlay'), rulesCloseBtn: $('rulesCloseBtn'), rulesTitle: $('rulesTitle'), rulesBody: $('rulesBody'),
-  leaderboardOverlay: $('leaderboardOverlay'), leaderboardCloseBtn: $('leaderboardCloseBtn'), leaderboardSummary: $('leaderboardSummary'), leaderboardList: $('leaderboardList'), leaderboardLobbyBtn: $('leaderboardLobbyBtn'),
+  leaderboardOverlay: $('leaderboardOverlay'), leaderboardCloseBtn: $('leaderboardCloseBtn'), leaderboardSummary: $('leaderboardSummary'), leaderboardList: $('leaderboardList'), leaderboardLobbyBtn: $('leaderboardLobbyBtn'), readyStatus: $('readyStatus'),
+  rouletteOverlay: $('rouletteOverlay'), rouletteCylinder: $('rouletteCylinder'), rouletteEyebrow: $('rouletteEyebrow'), rouletteName: $('rouletteName'), rouletteResult: $('rouletteResult'),
   appearanceBtn: $('appearanceBtn'), appearancePanel: $('appearancePanel'), bgColorInput: $('bgColorInput'), bgOpacityInput: $('bgOpacityInput'), bgOpacityOutput: $('bgOpacityOutput'), brightnessInput: $('brightnessInput'), brightnessOutput: $('brightnessOutput'), resetAppearanceBtn: $('resetAppearanceBtn'), leaveGameBtn: $('leaveGameBtn'),
   toastLayer: $('toastLayer')
 };
@@ -30,6 +33,9 @@ let myRoomId = '';
 let myNameText = '';
 let joinPending = false;
 let joinTimer = null;
+let rouletteQueue = [];
+let rouletteAnimating = false;
+let lastFlowSignature = '';
 
 function getDeviceId() {
   try {
@@ -63,6 +69,12 @@ const CARD_META = {
   joker: { cn: '魔术师', icon: CARD_ICONS.joker }, devil: { cn: '恶魔', icon: CARD_ICONS.devil }
 };
 const MODE_NAME = { dice: '骰子模式', card: '卡牌模式' };
+const SEAT_LAYOUTS = {
+  1: [{ left:50, top:14 }],
+  2: [{ left:50, top:14 }, { left:50, top:86 }],
+  3: [{ left:50, top:14 }, { left:18, top:76 }, { left:82, top:76 }],
+  4: [{ left:50, top:14 }, { left:84, top:50 }, { left:50, top:86 }, { left:16, top:50 }]
+};
 const RULES = {
   dice: `
     <ol>
@@ -144,18 +156,18 @@ function renderSeats() {
     if (player.id === myId) seat.classList.add('my-seat');
     if (!player.alive) seat.classList.add('dead');
     if (state.turnIndex === index && !state.gameOver) seat.classList.add('active');
-    const angle = (Math.PI * 2 / Math.max(count, 1)) * index + Math.PI / 2;
-    const radiusX = count === 2 ? 0 : 37;
-    const radiusY = 32;
-    seat.style.left = `${50 + radiusX * Math.cos(angle)}%`;
-    seat.style.top = `${50 + radiusY * Math.sin(angle)}%`;
+    const slot = (SEAT_LAYOUTS[count] || SEAT_LAYOUTS[4])[index];
+    seat.style.left = `${slot.left}%`;
+    seat.style.top = `${slot.top}%`;
 
     let status = '<div class="stat wait">等待中</div>';
     if (state.gameOver && player.alive) status = '<div class="stat win">胜者</div>';
     else if (!player.alive) status = '<div class="stat wait">已出局</div>';
     else if (state.turnIndex === index) status = '<div class="stat turn">正在思考</div>';
     const held = state.gameMode === 'card' ? `剩余 ${player.cardCount || 0} 张牌` : `持有 ${player.diceCount || 0} 颗骰子`;
-    seat.innerHTML = `<div class="sname">${escapeHtml(player.name)}${player.id === myId ? '（我）' : ''}<small>${player.alive ? '存活' : '出局'}</small></div><div class="sdice">${held}</div>${status}`;
+    const remaining = player.revolver ? player.revolver.remaining : 6;
+    const chamber = `<div class="chamber-count" aria-label="弹巢剩余 ${remaining} 格"><span class="chamber-dot"></span>弹巢 ${remaining}/6</div>`;
+    seat.innerHTML = `<div class="sname">${escapeHtml(player.name)}${player.id === myId ? '（我）' : ''}<small>${player.alive ? '存活' : '出局'}</small></div><div class="sdice">${held}</div>${chamber}${status}`;
     elements.seats.appendChild(seat);
   });
 }
@@ -163,8 +175,9 @@ function renderSeats() {
 function renderCenter() {
   if (!state) return;
   elements.returnLobbyBtn.hidden = !state.gameOver;
-  elements.returnLobbyBtn.disabled = Boolean(state.gameOver && state.hostId !== myId);
-  elements.returnLobbyBtn.textContent = state.hostId === myId ? '返回大厅' : '等待房主返回大厅';
+  const ready = (state.readyPlayerIds || []).includes(myId);
+  elements.returnLobbyBtn.disabled = false;
+  elements.returnLobbyBtn.textContent = ready ? '取消准备' : '准备下一局';
   if (state.gameMode === 'card') {
     elements.centerLabel.textContent = '本轮目标牌';
     const meta = CARD_META[state.targetCard];
@@ -192,6 +205,59 @@ function renderCenter() {
   }
 }
 
+function renderFlow() {
+  if (!state || !state.gameMode) return;
+  const current = state.players[state.turnIndex];
+  let step = '01';
+  let title = '等待行动';
+  let detail = current ? `${current.name} 正在决定下一步` : '同步对局状态';
+  if (elements.rouletteOverlay.classList.contains('open')) {
+    step = '03'; title = '轮盘判定中'; detail = elements.rouletteName.textContent || '正在扣动扳机';
+  } else if (state.gameOver) {
+    step = '04'; title = '本局已结算'; detail = '查看排行榜，全部玩家准备后进入下一局';
+  } else if (current && current.id === myId) {
+    step = '02'; title = '轮到你行动';
+    detail = state.gameMode === 'dice' ? (state.currentBid ? '提高报价，或质疑当前报价' : '请选择数量与点数开始报价') : (state.lastPlay ? '继续出牌，或质疑上家' : '选择 1–3 张牌暗出');
+  } else if ((state.gameMode === 'dice' && state.currentBid) || (state.gameMode === 'card' && state.lastPlay)) {
+    step = '02'; title = '等待下一步'; detail = state.gameMode === 'dice' ? `当前报价 ${state.currentBid[0]} 个 ${state.currentBid[1]}` : `上家暗出 ${state.lastPlay.count} 张牌`;
+  }
+  elements.flowIndex.textContent = step;
+  elements.flowTitle.textContent = title;
+  elements.flowDetail.textContent = detail;
+  elements.flowBanner.dataset.step = step;
+  const signature = `${step}:${title}:${detail}`;
+  if (signature !== lastFlowSignature && window.anime && typeof window.anime.animate === 'function' && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    window.anime.animate(elements.flowBanner, { opacity:[0.72,1], x:[-4,0], duration:340, ease:'out(3)' });
+  }
+  lastFlowSignature = signature;
+}
+
+function renderPlayHistory() {
+  const isCard = Boolean(state && state.gameMode === 'card');
+  elements.historyPanel.hidden = !isCard;
+  if (!isCard) return;
+  elements.historyRound.textContent = `第 ${state.roundNumber || 1} 轮`;
+  const entries = (state.playHistory || []).slice().reverse();
+  if (!entries.length) {
+    elements.playHistory.innerHTML = '<div class="history-empty">本轮尚未出牌</div>';
+    return;
+  }
+  elements.playHistory.innerHTML = entries.map((entry) => {
+    const cards = entry.cards ? entry.cards.map((card) => (CARD_META[card] ? CARD_META[card].cn : card)).join('、') : '牌面未揭示';
+    const outcome = entry.outcome === 'true' ? '<span class="history-outcome true">属实</span>' : entry.outcome === 'lie' ? '<span class="history-outcome lie">撒谎</span>' : '<span class="history-outcome">待验证</span>';
+    return `<div class="history-item"><span class="history-turn">R${entry.round}</span><div><strong>${escapeHtml(entry.playerName)}</strong><span>暗出 ${entry.count} 张 · ${escapeHtml(cards)}</span></div>${outcome}</div>`;
+  }).join('');
+}
+
+function updateReadyUi() {
+  if (!state) return;
+  const connected = state.players.filter((player) => player.connected).length;
+  const count = (state.readyPlayerIds || []).filter((id) => state.players.some((player) => player.id === id && player.connected)).length;
+  const ready = (state.readyPlayerIds || []).includes(myId);
+  elements.readyStatus.textContent = `已准备 ${count}/${connected}`;
+  elements.leaderboardLobbyBtn.textContent = ready ? '取消准备' : '准备下一局';
+}
+
 function renderMyArea(animateDice = false) {
   elements.myDiceRow.hidden = true;
   elements.myCardRow.hidden = true;
@@ -200,6 +266,7 @@ function renderMyArea(animateDice = false) {
     elements.myEmptyTip.hidden = false;
     return;
   }
+  elements.myAreaLabel.textContent = state.gameMode === 'dice' ? '我的骰子' : '我的手牌';
   const index = myIdx();
   if (index < 0 || !state.players[index].alive) {
     elements.myEmptyTip.textContent = '你已出局，可以继续旁观本局。';
@@ -281,7 +348,7 @@ function updateControls() {
 }
 
 function renderAll() {
-  showAppropriateScreen(); renderSeats(); renderCenter(); renderMyArea(); updateControls();
+  showAppropriateScreen(); renderSeats(); renderCenter(); renderFlow(); renderPlayHistory(); renderMyArea(); updateControls(); updateReadyUi();
 }
 
 function syncModalInert() {
@@ -332,9 +399,8 @@ function closeRules() {
 function renderLeaderboard(data) {
   lastResults = data;
   elements.resultsBtn.hidden = false;
-  const canReturn = Boolean(state && state.hostId === myId);
-  elements.leaderboardLobbyBtn.disabled = !canReturn;
-  elements.leaderboardLobbyBtn.textContent = canReturn ? '返回大厅' : '等待房主返回大厅';
+  elements.leaderboardLobbyBtn.disabled = false;
+  updateReadyUi();
   const winner = (data.rankings || []).find((player) => player.id === data.winnerId);
   elements.leaderboardSummary.textContent = winner ? `${winner.name} 获得本局第一名；排名按存活与淘汰顺序计算。` : '本局无人幸存；排名按淘汰先后与本局表现计算。';
   const header = '<div class="leaderboard-row header"><span>名次</span><span>玩家</span><span>结果</span><span>质疑</span><span>行动</span><span>轮盘</span></div>';
@@ -382,7 +448,33 @@ function renderReveal(data) {
 }
 
 function animateRoulette(data) {
+  rouletteQueue.push(data);
+  if (rouletteAnimating) return;
+  playNextRoulette();
+}
+
+function playNextRoulette() {
+  const data = rouletteQueue.shift();
+  if (!data) { rouletteAnimating = false; return; }
+  rouletteAnimating = true;
   const seat = elements.seats.querySelector(`[data-player-id="${cssEscape(data.victimId)}"]`);
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  elements.rouletteEyebrow.textContent = data.isDevil ? '恶魔牌触发' : data.challengeSuccess ? '质疑成功' : '质疑失败';
+  elements.rouletteName.textContent = `${data.victimName} 接受轮盘`;
+  elements.rouletteResult.textContent = '转动弹巢…';
+  elements.rouletteOverlay.classList.remove('shot', 'safe');
+  elements.rouletteOverlay.classList.add('open');
+  elements.rouletteOverlay.setAttribute('aria-hidden', 'false');
+  if (elements.flowBanner) {
+    elements.flowIndex.textContent = '03';
+    elements.flowTitle.textContent = '轮盘判定中';
+    elements.flowDetail.textContent = `${data.victimName} 正在扣动扳机`;
+    elements.flowBanner.dataset.step = '03';
+  }
+  if (!reducedMotion && window.anime && typeof window.anime.animate === 'function') {
+    window.anime.animate(elements.rouletteCylinder, { rotate:'2.25turn', scale:[0.9,1], duration:900, ease:'out(4)' });
+    window.anime.animate(elements.rouletteCylinder.querySelectorAll('i'), { scale:[0.65,1], opacity:[0.35,1], delay:window.anime.stagger(55), duration:430, ease:'out(3)' });
+  }
   if (seat) {
     seat.classList.add('risk');
     window.setTimeout(() => {
@@ -391,7 +483,23 @@ function animateRoulette(data) {
       window.setTimeout(() => seat.classList.remove('shot', 'safe'), 800);
     }, 520);
   }
-  showToast(data.isShot ? `${data.victimName} 中弹出局` : `${data.victimName} 扣下空枪，幸存`, data.isShot ? 'bad' : 'good');
+  window.setTimeout(() => {
+    elements.rouletteOverlay.classList.add(data.isShot ? 'shot' : 'safe');
+    elements.rouletteResult.textContent = data.isShot ? '实弹 · 出局' : `空枪 · 弹巢剩余 ${data.remaining} 格`;
+    if (!reducedMotion && window.anime && typeof window.anime.animate === 'function') {
+      window.anime.animate('.roulette-stage', data.isShot
+        ? { x:[-7,7,-5,5,0], duration:430, ease:'inOut(2)' }
+        : { scale:[0.98,1.02,1], duration:500, ease:'out(3)' });
+    }
+    showToast(data.isShot ? `${data.victimName} 中弹出局` : `${data.victimName} 扣下空枪，幸存`, data.isShot ? 'bad' : 'good');
+  }, reducedMotion ? 40 : 920);
+  window.setTimeout(() => {
+    elements.rouletteOverlay.classList.remove('open', 'shot', 'safe');
+    elements.rouletteOverlay.setAttribute('aria-hidden', 'true');
+    renderFlow();
+    rouletteAnimating = false;
+    playNextRoulette();
+  }, reducedMotion ? 900 : 2300);
 }
 
 function applyAppearance() {
@@ -441,17 +549,24 @@ socket.on('joined', (data) => {
 socket.on('state', (nextState) => {
   state = nextState;
   elements.modeBadge.textContent = MODE_NAME[state.gameMode] || '';
+  if (state.gameOver && state.finalResults && !lastResults) {
+    renderLeaderboard(state.finalResults);
+    window.setTimeout(openLeaderboard, 350);
+  }
   renderAll();
 });
 socket.on('gameStarted', (data) => {
   lastResults = null;
+  elements.log.replaceChildren();
+  elements.roundReveal.classList.remove('show');
+  elements.roundReveal.replaceChildren();
   elements.resultsBtn.hidden = true;
   openRules(data.mode);
   showToast(`${MODE_NAME[data.mode]}已开始`, 'good');
 });
 socket.on('gameOver', (data) => {
   renderLeaderboard(data);
-  window.setTimeout(openLeaderboard, 900);
+  window.setTimeout(openLeaderboard, 2500);
 });
 socket.on('returnedToLobby', () => {
   closeLeaderboard();
@@ -559,14 +674,14 @@ elements.playBtn.addEventListener('click', () => {
   selectedCards = [];
 });
 elements.doubtCardBtn.addEventListener('click', () => socket.emit('doubtCard'));
-elements.returnLobbyBtn.addEventListener('click', () => socket.emit('returnLobby'));
+elements.returnLobbyBtn.addEventListener('click', () => socket.emit('toggleReady'));
 elements.rulesBtn.addEventListener('click', () => openRules(state && state.gameMode, elements.rulesBtn));
 elements.resultsBtn.addEventListener('click', openLeaderboard);
 elements.rulesCloseBtn.addEventListener('click', closeRules);
 elements.rulesOverlay.addEventListener('click', (event) => { if (event.target === elements.rulesOverlay) closeRules(); });
 elements.leaderboardCloseBtn.addEventListener('click', closeLeaderboard);
 elements.leaderboardOverlay.addEventListener('click', (event) => { if (event.target === elements.leaderboardOverlay) closeLeaderboard(); });
-elements.leaderboardLobbyBtn.addEventListener('click', () => socket.emit('returnLobby'));
+elements.leaderboardLobbyBtn.addEventListener('click', () => socket.emit('toggleReady'));
 document.addEventListener('keydown', (event) => {
   if (elements.leaderboardOverlay.classList.contains('open')) {
     trapModalFocus(event, elements.leaderboardOverlay);

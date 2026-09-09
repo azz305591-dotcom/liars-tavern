@@ -3,7 +3,7 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { checkDiceBid, classifyDiceHand, rerollDice, validateBidTransition } = require('./game-logic');
+const { checkDiceBid, classifyDiceHand, rerollDice, validateBidTransition, createRevolver, pullRevolver, revolverPublicState } = require('./game-logic');
 
 const app = express();
 const server = http.createServer(app);
@@ -13,11 +13,12 @@ app.use(express.static('public'));
 const MAX_PLAYER = 4;
 const CARD_TYPES = ['sun', 'moon', 'star'];
 const rooms = new Map();
+const disconnectTimers = new Map();
 
 const emptyStats = () => ({ bids:0, doubts:0, successfulDoubts:0, failedDoubts:0, roulettePulls:0, cardsPlayed:0 });
 
 function makeRoom(code) {
-  return { roomCode:code, hostId:null, players:[], gameMode:null, currentBid:null, onesWild:true, lastBidAction:null, turnIndex:0, gameOver:false, targetCard:null, lastPlay:null, eliminationCounter:0 };
+  return { roomCode:code, hostId:null, players:[], gameMode:null, currentBid:null, onesWild:true, lastBidAction:null, turnIndex:0, gameOver:false, finalResults:null, targetCard:null, lastPlay:null, playHistory:[], roundNumber:0, readyPlayerIds:[], eliminationCounter:0 };
 }
 
 function makeCode() {
@@ -34,9 +35,11 @@ function publicState(state) {
   return {
     roomCode:state.roomCode, hostId:state.hostId, gameMode:state.gameMode, currentBid:state.currentBid,
     onesWild:state.onesWild, lastBidAction:state.lastBidAction, turnIndex:state.turnIndex,
-    gameOver:state.gameOver, targetCard:state.targetCard,
+    gameOver:state.gameOver, finalResults:state.finalResults, targetCard:state.targetCard, roundNumber:state.roundNumber,
     lastPlay:state.lastPlay ? { playerIdx:state.lastPlay.playerIdx, count:state.lastPlay.cards.length } : null,
-    players:state.players.map(p => ({ id:p.id, name:p.name, alive:p.alive, connected:p.connected, diceCount:p.dice.length, cardCount:p.cards.length }))
+    playHistory:state.playHistory.slice(-16).map(entry => ({ ...entry, cards:entry.cards ? entry.cards.slice() : null })),
+    readyPlayerIds:state.readyPlayerIds.slice(),
+    players:state.players.map(p => ({ id:p.id, name:p.name, alive:p.alive, connected:p.connected, diceCount:p.dice.length, cardCount:p.cards.length, revolver:revolverPublicState(p.revolver) }))
   };
 }
 
@@ -83,7 +86,8 @@ const generateCardHand = () => buildDeck().slice(0,5);
 
 function resetPlayers(state) {
   state.eliminationCounter=0;
-  state.players.forEach(p => { p.alive=true; p.dice=[]; p.cards=[]; p.eliminatedAt=null; p.stats=emptyStats(); });
+  state.playHistory=[]; state.roundNumber=0; state.readyPlayerIds=[];
+  state.players.forEach(p => { p.alive=true; p.dice=[]; p.cards=[]; p.revolver=createRevolver(); p.eliminatedAt=null; p.stats=emptyStats(); });
 }
 
 function rankings(state) {
@@ -101,17 +105,20 @@ function finishIfNeeded(state) {
     state.gameOver=true;
     const winner=state.players.find(p=>p.alive);
     roomEmit(state,'msg',winner?`游戏结束，${winner.name} 获胜！`:'游戏结束，本局无人幸存。');
-    roomEmit(state,'gameOver',{winnerId:winner?winner.id:null,rankings:rankings(state)});
+    state.finalResults={winnerId:winner?winner.id:null,rankings:rankings(state)};
+    roomEmit(state,'gameOver',state.finalResults);
   }
   return true;
 }
 
-function roulette(state,victimIndex) {
+function roulette(state,victimIndex,context={}) {
   const victim=state.players[victimIndex];
   victim.stats.roulettePulls+=1;
-  const isShot=Math.floor(Math.random()*6)===0;
+  const pull=pullRevolver(victim.revolver||createRevolver());
+  victim.revolver=pull.revolver;
+  const isShot=pull.isShot;
   if (isShot&&victim.alive) { victim.alive=false; state.eliminationCounter+=1; victim.eliminatedAt=state.eliminationCounter; }
-  const result={isShot,victimIdx:victimIndex,victimId:victim.id,victimName:victim.name};
+  const result={isShot,victimIdx:victimIndex,victimId:victim.id,victimName:victim.name,remaining:pull.remaining,chambers:6,...context};
   roomEmit(state,'rouletteResult',result);
   return result;
 }
@@ -123,7 +130,7 @@ function startDiceRound(state,reason='start') {
 }
 
 function startCardRound(state) {
-  state.targetCard=CARD_TYPES[Math.floor(Math.random()*CARD_TYPES.length)]; state.lastPlay=null; state.currentBid=null;
+  state.roundNumber+=1; state.targetCard=CARD_TYPES[Math.floor(Math.random()*CARD_TYPES.length)]; state.lastPlay=null; state.currentBid=null;
   state.players.forEach(p => { if(p.alive) p.cards=generateCardHand(); });
   roomEmit(state,'newCardRound',{target:state.targetCard});
   state.players.forEach(p => { if(p.alive) { const s=privateSocket(p); if(s) s.emit('myCards',p.cards); } });
@@ -137,8 +144,8 @@ function checkCardPlay(cards,target) {
 }
 
 function resetLobby(state) {
-  Object.assign(state,{gameMode:null,currentBid:null,onesWild:true,lastBidAction:null,turnIndex:0,gameOver:false,targetCard:null,lastPlay:null});
-  state.players.forEach(p=>{p.alive=true;p.dice=[];p.cards=[];});
+  Object.assign(state,{gameMode:null,currentBid:null,onesWild:true,lastBidAction:null,turnIndex:0,gameOver:false,finalResults:null,targetCard:null,lastPlay:null,playHistory:[],roundNumber:0,readyPlayerIds:[]});
+  state.players.forEach(p=>{p.alive=true;p.dice=[];p.cards=[];p.revolver=createRevolver();});
 }
 
 function leaveCurrent(socket,notify=true) {
@@ -166,11 +173,15 @@ function addOrReconnect(socket,state,name,deviceId) {
   const cleanId=String(deviceId||'').slice(0,80) || `socket-${socket.id}`;
   const cleanName=String(name||'').trim().slice(0,8)||'匿名';
   let player=state.players.find(p=>p.id===cleanId);
-  if(player) { player.socketId=socket.id; player.connected=true; player.name=cleanName; }
+  if(player) {
+    const timerKey=`${state.roomCode}:${player.id}`; const timer=disconnectTimers.get(timerKey);
+    if(timer){clearTimeout(timer);disconnectTimers.delete(timerKey);}
+    player.socketId=socket.id; player.connected=true; player.name=cleanName;
+  }
   else {
     if(state.gameMode) return {ok:false,message:'该房间正在对局中。你可以创建新房间，或等待本局结束。'};
     if(state.players.length>=MAX_PLAYER) return {ok:false,message:'房间已满，最多 4 人。'};
-    player={id:cleanId,socketId:socket.id,name:cleanName,dice:[],cards:[],alive:true,connected:true,eliminatedAt:null,stats:emptyStats()};
+    player={id:cleanId,socketId:socket.id,name:cleanName,dice:[],cards:[],revolver:createRevolver(),alive:true,connected:true,eliminatedAt:null,stats:emptyStats()};
     state.players.push(player);
   }
   socket.join(channel(state)); socket.data.roomCode=state.roomCode; socket.data.playerId=player.id;
@@ -228,7 +239,7 @@ io.on('connection',socket=>{
     if(result.valid){victim=i;doubter.stats.failedDoubts+=1;roomEmit(state,'msg',`${doubter.name} 质疑失败，实际计数为 ${result.total}。`);}
     else{victim=prevAliveIdx(state,i);if(victim<0)return;doubter.stats.successfulDoubts+=1;roomEmit(state,'msg',`抓到骗子，实际只有 ${result.total} 个。`);}
     roomEmit(state,'diceReveal',{bid:state.currentBid.slice(),onesWild:state.onesWild,actualCount:result.total,valid:result.valid,players:state.players.filter(p=>p.alive).map(p=>{const c=classifyDiceHand(p.dice);return{id:p.id,name:p.name,dice:p.dice.slice(),leopardType:c.kind==='real-leopard'?'real':c.kind==='fake-leopard'?'fake':null};})});
-    const shot=roulette(state,victim); roomEmit(state,'msg',shot.isShot?`${shot.victimName} 中弹出局。`:`${shot.victimName} 扣下空枪，幸存。`);
+    const shot=roulette(state,victim,{challengeSuccess:!result.valid,actualCount:result.total}); roomEmit(state,'msg',shot.isShot?`${shot.victimName} 中弹出局。`:`${shot.victimName} 扣下空枪，幸存。`);
     state.currentBid=null;
     if(!finishIfNeeded(state)){nextTurn(state);startDiceRound(state,'roulette');roomEmit(state,'msg','轮盘结算完成，所有存活玩家已经重摇骰子。');}
     emitState(state);
@@ -240,7 +251,9 @@ io.on('connection',socket=>{
     if(!Array.isArray(cards)||cards.length<1||cards.length>3){socket.emit('msg','每次出牌 1–3 张，恶魔只能单出。');return;}
     const hand=state.players[i].cards.slice();
     for(const c of cards){const pos=hand.indexOf(c);if(pos<0){socket.emit('msg','你手里没有这张牌。');return;}hand.splice(pos,1);}
-    state.players[i].cards=hand; state.players[i].stats.cardsPlayed+=cards.length; state.lastPlay={playerIdx:i,cards:cards.slice()};
+    state.players[i].cards=hand; state.players[i].stats.cardsPlayed+=cards.length;
+    const historyEntry={id:`${Date.now()}-${i}`,round:state.roundNumber,playerId:state.players[i].id,playerName:state.players[i].name,count:cards.length,cards:null,outcome:null};
+    state.playHistory.push(historyEntry); state.lastPlay={playerIdx:i,cards:cards.slice(),historyId:historyEntry.id};
     socket.emit('myCards',hand); roomEmit(state,'msg',`${state.players[i].name} 暗着打出 ${cards.length} 张牌。`); nextTurn(state); emitState(state);
   });
 
@@ -249,23 +262,42 @@ io.on('connection',socket=>{
     const i=state.players.findIndex(p=>p.id===socket.data.playerId); if(i<0||i!==state.turnIndex||!state.players[i].alive) return;
     const doubter=state.players[i], last=state.lastPlay, lastPlayer=state.players[last.playerIdx]; doubter.stats.doubts+=1;
     roomEmit(state,'revealCards',{playerIdx:last.playerIdx,cards:last.cards}); const check=checkCardPlay(last.cards,state.targetCard);
+    const historyEntry=state.playHistory.find(entry=>entry.id===last.historyId); if(historyEntry){historyEntry.cards=last.cards.slice();historyEntry.outcome=check.valid?'true':'lie';}
     if(check.valid){
       doubter.stats.failedDoubts+=1;
-      if(check.isDevil){roomEmit(state,'msg','恶魔牌生效，除出牌者外均扣动轮盘。');state.players.forEach((p,index)=>{if(p.alive&&index!==last.playerIdx){const r=roulette(state,index);roomEmit(state,'msg',r.isShot?`${p.name} 中弹出局。`:`${p.name} 扣下空枪，幸存。`);}});}
-      else{roomEmit(state,'msg',`出牌属实，${doubter.name} 质疑失败。`);const r=roulette(state,i);roomEmit(state,'msg',r.isShot?`${doubter.name} 中弹出局。`:`${doubter.name} 扣下空枪，幸存。`);}
-    }else{doubter.stats.successfulDoubts+=1;roomEmit(state,'msg',`${lastPlayer.name} 撒谎，被质疑成功。`);const r=roulette(state,last.playerIdx);roomEmit(state,'msg',r.isShot?`${lastPlayer.name} 中弹出局。`:`${lastPlayer.name} 扣下空枪，幸存。`);}
+      if(check.isDevil){roomEmit(state,'msg','恶魔牌生效，除出牌者外均扣动轮盘。');state.players.forEach((p,index)=>{if(p.alive&&index!==last.playerIdx){const r=roulette(state,index,{challengeSuccess:false,isDevil:true});roomEmit(state,'msg',r.isShot?`${p.name} 中弹出局。`:`${p.name} 扣下空枪，幸存。`);}});}
+      else{roomEmit(state,'msg',`出牌属实，${doubter.name} 质疑失败。`);const r=roulette(state,i,{challengeSuccess:false});roomEmit(state,'msg',r.isShot?`${doubter.name} 中弹出局。`:`${doubter.name} 扣下空枪，幸存。`);}
+    }else{doubter.stats.successfulDoubts+=1;roomEmit(state,'msg',`${lastPlayer.name} 撒谎，被质疑成功。`);const r=roulette(state,last.playerIdx,{challengeSuccess:true});roomEmit(state,'msg',r.isShot?`${lastPlayer.name} 中弹出局。`:`${lastPlayer.name} 扣下空枪，幸存。`);}
     if(!finishIfNeeded(state)){startCardRound(state);roomEmit(state,'msg','新一轮已经发牌，目标牌已更新。');} emitState(state);
   });
 
-  socket.on('returnLobby',()=>{const state=roomFor(socket);if(!state||!state.gameOver||state.hostId!==socket.data.playerId)return;resetLobby(state);roomEmit(state,'returnedToLobby');emitState(state);});
+  socket.on('toggleReady',()=>{
+    const state=roomFor(socket); if(!state||!state.gameOver)return;
+    const player=state.players.find(p=>p.id===socket.data.playerId); if(!player||!player.connected)return;
+    const readyIndex=state.readyPlayerIds.indexOf(player.id);
+    if(readyIndex>=0) state.readyPlayerIds.splice(readyIndex,1); else state.readyPlayerIds.push(player.id);
+    const connected=state.players.filter(p=>p.connected);
+    if(connected.length&&connected.every(p=>state.readyPlayerIds.includes(p.id))){resetLobby(state);roomEmit(state,'returnedToLobby');roomEmit(state,'msg','所有玩家已准备，可以开始下一局。');emitState(state);return;}
+    roomEmit(state,'msg',`${player.name}${readyIndex>=0?'取消了准备':'已准备下一局'}。`); emitState(state);
+  });
   socket.on('leaveRoom',()=>{leaveCurrent(socket,true);socket.emit('left');});
   socket.on('disconnect',()=>{
     const state=roomFor(socket); if(!state)return;
     const playerIndex=state.players.findIndex(x=>x.id===socket.data.playerId); const p=state.players[playerIndex]; if(!p)return;
-    p.connected=false;p.socketId=null;
-    if(state.gameMode&&!state.gameOver&&p.alive){p.alive=false;state.eliminationCounter+=1;p.eliminatedAt=state.eliminationCounter;roomEmit(state,'msg',`${p.name} 断线，已退出本局。`);if(state.hostId===p.id)state.hostId=state.players.find(x=>x.connected)?.id||p.id;if(state.turnIndex===playerIndex)nextTurn(state);finishIfNeeded(state);}
-    else if(state.hostId===p.id) state.hostId=state.players.find(x=>x.connected)?.id||p.id;
-    emitState(state);
+    p.connected=false;p.socketId=null; emitState(state);
+    if(state.gameMode&&!state.gameOver&&p.alive){
+      const timerKey=`${state.roomCode}:${p.id}`;
+      const timer=setTimeout(()=>{
+        disconnectTimers.delete(timerKey);
+        const current=rooms.get(state.roomCode); const stale=current&&current.players.find(x=>x.id===p.id);
+        if(!current||!stale||stale.connected||current.gameOver||!stale.alive)return;
+        const staleIndex=current.players.indexOf(stale); stale.alive=false;current.eliminationCounter+=1;stale.eliminatedAt=current.eliminationCounter;
+        roomEmit(current,'msg',`${stale.name} 断线超时，已退出本局。`);
+        if(current.hostId===stale.id)current.hostId=current.players.find(x=>x.connected)?.id||stale.id;
+        if(current.turnIndex===staleIndex)nextTurn(current);finishIfNeeded(current);emitState(current);
+      },12000);
+      disconnectTimers.set(timerKey,timer);
+    } else if(state.hostId===p.id) state.hostId=state.players.find(x=>x.connected)?.id||p.id;
     if(!state.gameMode) setTimeout(()=>{
       const current=rooms.get(state.roomCode); const stale=current&&current.players.find(x=>x.id===p.id);
       if(!current||!stale||stale.connected)return;
