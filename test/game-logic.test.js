@@ -11,6 +11,7 @@ const {
   rerollDice,
   createRevolver,
   pullRevolver,
+  createRouletteVisual,
   revolverPublicState,
   aliveTurnIndex,
   validateCardSelection,
@@ -52,6 +53,18 @@ test('轮盘为每位玩家保存真实弹巢进度，且不向前端泄露子�
   assert.equal(result.remaining, 3);
   assert.deepEqual(revolverPublicState(result.revolver), { chambers: 6, remaining: 3 });
   assert.equal('bulletAt' in revolverPublicState(result.revolver), false);
+});
+
+test('处决动画命中对准实弹，空枪随机落在其余孔位', () => {
+  assert.deepEqual(createRouletteVisual(true, () => 0), { visualStopIndex: 0, visualTurns: 6 });
+  const rolls = [0, 0.999, 0.5, 0.34];
+  let index = 0;
+  const safe = createRouletteVisual(false, () => rolls[index++]);
+  const safeAgain = createRouletteVisual(false, () => rolls[index++]);
+  assert.deepEqual(safe, { visualStopIndex: 1, visualTurns: 8 });
+  assert.deepEqual(safeAgain, { visualStopIndex: 3, visualTurns: 7 });
+  assert.notEqual(safe.visualStopIndex, 0);
+  assert.notEqual(safeAgain.visualStopIndex, 0);
 });
 
 test('当前玩家出局后回合自动顺延到下一位存活玩家', () => {

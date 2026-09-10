@@ -146,6 +146,20 @@ function pullRevolver(revolver) {
   };
 }
 
+function createRouletteVisual(isShot, rng = Math.random) {
+  if (typeof rng !== 'function') throw new TypeError('随机数生成器必须是函数');
+  const landingRoll = rng();
+  const turnsRoll = rng();
+  if (![landingRoll, turnsRoll].every((value) => Number.isFinite(value) && value >= 0 && value < 1)) {
+    throw new RangeError('随机数生成器必须返回 [0, 1) 范围内的数');
+  }
+  return {
+    // 命中时实弹停在击发位；空枪随机停在其余五个孔位。
+    visualStopIndex: isShot ? 0 : Math.floor(landingRoll * (REVOLVER_CHAMBERS - 1)) + 1,
+    visualTurns: 6 + Math.floor(turnsRoll * 3)
+  };
+}
+
 function revolverPublicState(revolver) {
   const pulls = revolver && Number.isInteger(revolver.pulls) ? revolver.pulls : 0;
   return { chambers: REVOLVER_CHAMBERS, remaining: Math.max(0, REVOLVER_CHAMBERS - pulls) };
@@ -286,6 +300,7 @@ module.exports = {
   rerollDice,
   createRevolver,
   pullRevolver,
+  createRouletteVisual,
   revolverPublicState,
   aliveTurnIndex,
   validateCardSelection,

@@ -3,7 +3,7 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { checkDiceBid, classifyDiceHand, rerollDice, validateBidTransition, createRevolver, pullRevolver, revolverPublicState, aliveTurnIndex, validateCardSelection, buildCardDeck, validateQuickMessage } = require('./game-logic');
+const { checkDiceBid, classifyDiceHand, rerollDice, validateBidTransition, createRevolver, pullRevolver, createRouletteVisual, revolverPublicState, aliveTurnIndex, validateCardSelection, buildCardDeck, validateQuickMessage } = require('./game-logic');
 
 const app = express();
 const server = http.createServer(app);
@@ -121,7 +121,7 @@ function roulette(state,victimIndex,context={}) {
   victim.revolver=pull.revolver;
   const isShot=pull.isShot;
   if (isShot&&victim.alive) { victim.alive=false; state.eliminationCounter+=1; victim.eliminatedAt=state.eliminationCounter; }
-  const result={isShot,victimIdx:victimIndex,victimId:victim.id,victimName:victim.name,remaining:pull.remaining,chambers:6,...context};
+  const result={isShot,victimIdx:victimIndex,victimId:victim.id,victimName:victim.name,remaining:pull.remaining,chambers:6,...createRouletteVisual(isShot),...context};
   roomEmit(state,'rouletteResult',result);
   return result;
 }

@@ -42,10 +42,10 @@ let cardRevealTimer = null;
 let quickChatInvoker = null;
 const seenQuickMessages = new Set();
 const ROULETTE_TIMING = Object.freeze({
-  spinStart: 650,
-  lock: 3400,
-  reveal: 4050,
-  close: 7200,
+  spinStart: 700,
+  lock: 3900,
+  reveal: 4700,
+  close: 9000,
   reducedSpinStart: 160,
   reducedLock: 620,
   reducedReveal: 980,
@@ -581,7 +581,12 @@ function playNextRoulette() {
   elements.rouletteOverlay.classList.add('open');
   elements.rouletteOverlay.setAttribute('aria-hidden', 'false');
   document.documentElement.classList.add('roulette-active');
+  elements.rouletteCylinder.style.transition = 'none';
   elements.rouletteCylinder.style.transform = 'rotate(0turn)';
+  const visualStopIndex = Number.isInteger(data.visualStopIndex) ? Math.max(0, Math.min(5, data.visualStopIndex)) : (data.isShot ? 0 : Math.floor(Math.random() * 5) + 1);
+  const visualTurns = Number.isInteger(data.visualTurns) ? Math.max(5, Math.min(10, data.visualTurns)) : 7;
+  const stopAngle = visualTurns * 360 + visualStopIndex * 60;
+  elements.rouletteCylinder.style.setProperty('--roulette-stop', `${stopAngle}deg`);
   const spinStart = reducedMotion ? ROULETTE_TIMING.reducedSpinStart : ROULETTE_TIMING.spinStart;
   const lockDelay = reducedMotion ? ROULETTE_TIMING.reducedLock : ROULETTE_TIMING.lock;
   const revealDelay = reducedMotion ? ROULETTE_TIMING.reducedReveal : ROULETTE_TIMING.reveal;
@@ -594,7 +599,10 @@ function playNextRoulette() {
     elements.rouletteOverlay.classList.add('phase-spin');
     elements.rouletteResult.textContent = '弹巢高速旋转 · 所有人等待结果';
     if (!reducedMotion && window.anime && typeof window.anime.animate === 'function') {
-      window.anime.animate(elements.rouletteCylinder, { rotate:data.isShot ? '6turn' : '5.833turn', scale:[1,1.025,1], duration:2700, ease:'out(6)' });
+      window.anime.animate(elements.rouletteCylinder, { rotate:`${stopAngle}deg`, scale:[1,1.035,1.012,1], duration:3050, ease:'out(7)' });
+    } else {
+      elements.rouletteCylinder.style.transition = `transform ${reducedMotion ? 450 : 3050}ms cubic-bezier(.12,.72,.12,1)`;
+      elements.rouletteCylinder.style.transform = `rotate(${stopAngle}deg)`;
     }
   }, spinStart);
   window.setTimeout(() => {
@@ -618,13 +626,12 @@ function playNextRoulette() {
     elements.rouletteOverlay.classList.add(data.isShot ? 'shot' : 'safe');
     if (data.isShot && !reducedMotion) {
       elements.gameScreen.classList.add('impact-shake');
-      window.setTimeout(() => elements.gameScreen.classList.remove('impact-shake'), 980);
+      window.setTimeout(() => elements.gameScreen.classList.remove('impact-shake'), 1450);
+      if (navigator.vibrate) navigator.vibrate([120, 45, 180]);
     }
     elements.rouletteResult.textContent = data.isShot ? '命中 · 实弹击发 · 玩家出局' : `空枪 · 本次幸存 · 剩余 ${data.remaining} 格`;
     if (!reducedMotion && window.anime && typeof window.anime.animate === 'function') {
-      window.anime.animate('.roulette-stage', data.isShot
-        ? { x:[-18,15,-13,10,-7,5,-2,0], y:[0,-4,3,-2,1,0], scale:[1,1.035,1], duration:820, ease:'inOut(2)' }
-        : { y:[0,3,0], duration:440, ease:'out(3)' });
+      if (!data.isShot) window.anime.animate('.roulette-stage', { y:[0,4,0], duration:480, ease:'out(3)' });
     }
     showToast(data.isShot ? `${data.victimName} 中弹出局` : `${data.victimName} 扣下空枪，幸存`, data.isShot ? 'bad' : 'good');
   }, revealDelay);
@@ -735,7 +742,7 @@ socket.on('seatResult', (data) => {
   showToast(elements.seatPickerStatus.textContent, data.ok ? 'good' : 'bad');
 });
 socket.on('quickMessageResult', (data) => {
-  showToast(data && data.valid ? '快捷语言已发送' : (data && data.reason) || '快捷语言发送失败', data && data.valid ? 'good' : 'bad');
+  if (!data || !data.valid) showToast((data && data.reason) || '快捷语言发送失败', 'bad');
 });
 socket.on('newCardRound', (data) => {
   const meta = CARD_META[data.target];
