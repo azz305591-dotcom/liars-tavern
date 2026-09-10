@@ -46,6 +46,7 @@ const ROULETTE_TIMING = Object.freeze({
   lock: 3900,
   reveal: 4700,
   resultHold: 1800,
+  resultToast: 1800,
   reducedSpinStart: 160,
   reducedLock: 620,
   reducedReveal: 980
@@ -531,13 +532,13 @@ function closeLeaderboard() {
   focusGameplayControl(!elements.resultsBtn.hidden ? elements.resultsBtn : null);
 }
 
-function showToast(text, type = '') {
+function showToast(text, type = '', duration = 2600) {
   elements.toastLayer.replaceChildren();
   const toast = document.createElement('div');
   toast.className = `toast ${type}`.trim();
   toast.textContent = text;
   elements.toastLayer.appendChild(toast);
-  window.setTimeout(() => toast.remove(), 2600);
+  window.setTimeout(() => toast.remove(), duration);
 }
 
 function renderReveal(data) {
@@ -632,7 +633,11 @@ function playNextRoulette() {
     if (!reducedMotion && window.anime && typeof window.anime.animate === 'function') {
       if (!data.isShot) window.anime.animate('.roulette-stage', { y:[0,4,0], duration:480, ease:'out(3)' });
     }
-    showToast(data.isShot ? `${data.victimName} 中弹出局` : `${data.victimName} 扣下空枪，幸存`, data.isShot ? 'bad' : 'good');
+    showToast(
+      data.isShot ? `${data.victimName} 中弹出局` : `${data.victimName} 扣下空枪，幸存`,
+      data.isShot ? 'bad' : 'good',
+      ROULETTE_TIMING.resultToast
+    );
   }, revealDelay);
   window.setTimeout(() => {
     elements.rouletteOverlay.classList.remove('open', 'shot', 'safe', 'phase-load', 'phase-spin', 'phase-trigger');
