@@ -3,7 +3,7 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { checkDiceBid, classifyDiceHand, rerollDice, validateBidTransition, createRevolver, pullRevolver, createRouletteVisual, revolverPublicState, aliveTurnIndex, validateCardSelection, buildCardDeck, validateQuickMessage } = require('./game-logic');
+const { checkDiceBid, classifyDiceHand, rerollDice, validateBidTransition, createRevolver, pullRevolver, createRouletteVisual, revolverPublicState, aliveTurnIndex, clockwiseAliveIndexes, validateCardSelection, buildCardDeck, validateQuickMessage } = require('./game-logic');
 
 const app = express();
 const server = http.createServer(app);
@@ -289,7 +289,7 @@ io.on('connection',socket=>{
     const historyEntry=state.playHistory.find(entry=>entry.id===last.historyId); if(historyEntry){historyEntry.cards=last.cards.slice();historyEntry.outcome=check.valid?'true':'lie';}
     if(check.valid){
       doubter.stats.failedDoubts+=1;
-      if(check.isDevil){roomEmit(state,'msg','恶魔牌生效，除出牌者外均扣动轮盘。');state.players.forEach((p,index)=>{if(p.alive&&index!==last.playerIdx){const r=roulette(state,index,{challengeSuccess:false,isDevil:true});roomEmit(state,'msg',r.isShot?`${p.name} 中弹出局。`:`${p.name} 扣下空枪，幸存。`);}});}
+      if(check.isDevil){roomEmit(state,'msg','恶魔牌生效，从触发者顺时针依次执行。');clockwiseAliveIndexes(state.players,last.playerIdx,MAX_PLAYER).forEach(index=>{const p=state.players[index];const r=roulette(state,index,{challengeSuccess:false,isDevil:true});roomEmit(state,'msg',r.isShot?`${p.name} 中弹出局。`:`${p.name} 扣下空枪，幸存。`);});}
       else{roomEmit(state,'msg',`出牌属实，${doubter.name} 质疑失败。`);const r=roulette(state,i,{challengeSuccess:false});roomEmit(state,'msg',r.isShot?`${doubter.name} 中弹出局。`:`${doubter.name} 扣下空枪，幸存。`);}
     }else{doubter.stats.successfulDoubts+=1;roomEmit(state,'msg',`${lastPlayer.name} 撒谎，被质疑成功。`);const r=roulette(state,last.playerIdx,{challengeSuccess:true});roomEmit(state,'msg',r.isShot?`${lastPlayer.name} 中弹出局。`:`${lastPlayer.name} 扣下空枪，幸存。`);}
     if(!finishIfNeeded(state)){

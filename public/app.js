@@ -45,11 +45,10 @@ const ROULETTE_TIMING = Object.freeze({
   spinStart: 700,
   lock: 3900,
   reveal: 4700,
-  close: 9000,
+  resultHold: 1800,
   reducedSpinStart: 160,
   reducedLock: 620,
-  reducedReveal: 980,
-  reducedClose: 3200
+  reducedReveal: 980
 });
 
 function getDeviceId() {
@@ -590,7 +589,7 @@ function playNextRoulette() {
   const spinStart = reducedMotion ? ROULETTE_TIMING.reducedSpinStart : ROULETTE_TIMING.spinStart;
   const lockDelay = reducedMotion ? ROULETTE_TIMING.reducedLock : ROULETTE_TIMING.lock;
   const revealDelay = reducedMotion ? ROULETTE_TIMING.reducedReveal : ROULETTE_TIMING.reveal;
-  const closeDelay = reducedMotion ? ROULETTE_TIMING.reducedClose : ROULETTE_TIMING.close;
+  const closeDelay = revealDelay + ROULETTE_TIMING.resultHold;
   if (!reducedMotion && window.anime && typeof window.anime.animate === 'function') {
     window.anime.animate(elements.rouletteMechanism, { scale:[0.965,1], opacity:[0.72,1], duration:520, ease:'out(4)' });
   }

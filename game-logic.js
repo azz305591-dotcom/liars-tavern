@@ -176,6 +176,22 @@ function aliveTurnIndex(players, currentIndex) {
   return -1;
 }
 
+function clockwiseAliveIndexes(players, triggerIndex, seatCount = 4) {
+  if (!Array.isArray(players) || !Number.isInteger(triggerIndex) || !players[triggerIndex]) return [];
+  if (!Number.isInteger(seatCount) || seatCount < 2) throw new RangeError('座位数量必须至少为 2');
+  const seatOf = (player, fallback) => Number.isInteger(player.seatIndex) ? player.seatIndex : fallback;
+  const triggerSeat = seatOf(players[triggerIndex], triggerIndex);
+  return players
+    .map((player, index) => ({
+      index,
+      player,
+      distance: (seatOf(player, index) - triggerSeat + seatCount) % seatCount
+    }))
+    .filter(({ index, player, distance }) => index !== triggerIndex && player.alive !== false && distance > 0)
+    .sort((left, right) => left.distance - right.distance)
+    .map(({ index }) => index);
+}
+
 function validateCardSelection(cards) {
   if (!Array.isArray(cards) || cards.length < 1 || cards.length > 3) {
     return { valid: false, reason: '每次必须打出 1–3 张牌' };
@@ -303,6 +319,7 @@ module.exports = {
   createRouletteVisual,
   revolverPublicState,
   aliveTurnIndex,
+  clockwiseAliveIndexes,
   validateCardSelection,
   validateQuickMessage,
   buildCardDeck,

@@ -14,6 +14,7 @@ const {
   createRouletteVisual,
   revolverPublicState,
   aliveTurnIndex,
+  clockwiseAliveIndexes,
   validateCardSelection,
   validateQuickMessage,
   buildCardDeck,
@@ -78,6 +79,17 @@ test('当前玩家出局后回合自动顺延到下一位存活玩家', () => {
   assert.equal(aliveTurnIndex(players, 3), 3);
   assert.equal(aliveTurnIndex(players, 6), 3);
   assert.equal(aliveTurnIndex(players.map((player) => ({ ...player, alive: false })), 1), -1);
+});
+
+test('恶魔牌从触发者座位开始按顺时针排列存活玩家', () => {
+  const players = [
+    { id: 'a', seatIndex: 2, alive: true },
+    { id: 'b', seatIndex: 0, alive: true },
+    { id: 'c', seatIndex: 3, alive: true },
+    { id: 'd', seatIndex: 1, alive: false }
+  ];
+  assert.deepEqual(clockwiseAliveIndexes(players, 0), [2, 1]);
+  assert.deepEqual(clockwiseAliveIndexes(players, 2), [1, 0]);
 });
 
 test('恶魔牌必须单出，服务端拒绝任何混出组合', () => {
