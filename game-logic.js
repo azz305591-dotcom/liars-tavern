@@ -164,6 +164,20 @@ function validateCardSelection(cards) {
   return { valid: true, reason: '' };
 }
 
+function buildCardDeck(random = Math.random) {
+  const deck = [];
+  for (let index = 0; index < 6; index += 1) deck.push('sun', 'star', 'moon');
+  deck.push('joker', 'joker');
+
+  const replaceIndex = Math.min(17, Math.floor(Math.max(0, Math.min(0.999999, random())) * 18));
+  deck[replaceIndex] = 'devil';
+  for (let index = deck.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.min(index, Math.floor(Math.max(0, Math.min(0.999999, random())) * (index + 1)));
+    [deck[index], deck[swapIndex]] = [deck[swapIndex], deck[index]];
+  }
+  return deck;
+}
+
 function readBid(bid) {
   if (Array.isArray(bid)) return { quantity: bid[0], face: bid[1] };
   if (bid && typeof bid === 'object') {
@@ -259,5 +273,6 @@ module.exports = {
   revolverPublicState,
   aliveTurnIndex,
   validateCardSelection,
+  buildCardDeck,
   validateBidTransition
 };

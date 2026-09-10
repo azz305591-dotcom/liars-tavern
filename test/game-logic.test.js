@@ -14,6 +14,7 @@ const {
   revolverPublicState,
   aliveTurnIndex,
   validateCardSelection,
+  buildCardDeck,
   validateBidTransition
 } = require('../game-logic');
 
@@ -71,6 +72,16 @@ test('恶魔牌必须单出，服务端拒绝任何混出组合', () => {
   assert.equal(validateCardSelection(['moon', 'devil', 'joker']).valid, false);
   assert.match(validateCardSelection(['devil', 'star']).reason, /不能与其他牌混出/);
   assert.equal(validateCardSelection(['sun', 'moon', 'star']).valid, true);
+});
+
+test('卡牌小轮使用 6/6/6/2 基础牌库并随机替换一张普通牌为恶魔', () => {
+  const deck = buildCardDeck(() => 0);
+  const count = (card) => deck.filter((item) => item === card).length;
+  assert.equal(deck.length, 20);
+  assert.equal(count('devil'), 1);
+  assert.equal(count('joker'), 2);
+  assert.equal(count('sun') + count('star') + count('moon'), 17);
+  assert.deepEqual([count('sun'), count('star'), count('moon')].sort(), [5, 6, 6]);
 });
 
 test('普通骰在飞时将 1 当万能数，摘后只按实际点数计算', () => {

@@ -6,7 +6,7 @@ const elements = {
   lobbyInfo: $('lobbyInfo'), lobbyHint: $('lobbyHint'), lobbyRoomCode: $('lobbyRoomCode'), copyInviteBtn: $('copyInviteBtn'), leaveLobbyBtn: $('leaveLobbyBtn'), startDiceBtn: $('startDiceBtn'), startCardBtn: $('startCardBtn'), lobbySeats: $('lobbySeats'), seatPickerStatus: $('seatPickerStatus'),
   modeBadge: $('modeBadge'), roomInfo: $('roomInfo'), seats: $('seats'), centerLabel: $('centerLabel'),
   centerValue: $('centerValue'), turnInfo: $('turnInfo'), wildStatus: $('wildStatus'), returnLobbyBtn: $('returnLobbyBtn'),
-  flowBanner: $('flowBanner'), flowIndex: $('flowIndex'), flowTitle: $('flowTitle'), flowDetail: $('flowDetail'),
+  lastPlayPanel: $('lastPlayPanel'), lastPlayLabel: $('lastPlayLabel'), lastPlaySummary: $('lastPlaySummary'), lastPlayCards: $('lastPlayCards'),
   myName: $('myName'), myAreaLabel: $('myAreaLabel'), myDiceRow: $('myDiceRow'), myCardRow: $('myCardRow'), myEmptyTip: $('myEmptyTip'),
   diceControls: $('diceControls'), cardControls: $('cardControls'), diceHint: $('diceHint'), cardHint: $('cardHint'),
   cntSel: $('cntSel'), faceSel: $('faceSel'), exactBtn: $('exactBtn'), flyBtn: $('flyBtn'), bidBtn: $('bidBtn'), doubtBtn: $('doubtBtn'),
@@ -35,7 +35,9 @@ let joinPending = false;
 let joinTimer = null;
 let rouletteQueue = [];
 let rouletteAnimating = false;
-let lastFlowSignature = '';
+let lastPlaySignature = '';
+let lastCardReveal = null;
+let cardRevealTimer = null;
 const ROULETTE_TIMING = Object.freeze({
   spinStart: 650,
   lock: 3400,
@@ -74,6 +76,7 @@ const CARD_ICONS = {
   devil: cardIcon('<path d="M7 8 4 4c-.6 3 .1 5.2 2.2 6.5M17 8l3-4c.6 3-.1 5.2-2.2 6.5"/><path d="M6 13a6 6 0 0 1 12 0v2a6 6 0 0 1-12 0v-2Z"/><path d="m9 13 1.5 1M15 13l-1.5 1M10 18h4"/>'),
   unknown: cardIcon('<circle cx="12" cy="12" r="9"/><path d="M9.8 9a2.3 2.3 0 1 1 3.4 2c-.9.5-1.2 1-1.2 2M12 17h.01"/>')
 };
+const CARD_BACK_MARK = cardIcon('<path d="M7 5h10v14H7z"/><path d="m9 8 3-2 3 2-3 2-3-2Zm0 5 3-2 3 2-3 2-3-2Zm0 3 3-2 3 2"/>');
 const CARD_META = {
   sun: { cn: '太阳', icon: CARD_ICONS.sun }, moon: { cn: '月亮', icon: CARD_ICONS.moon }, star: { cn: '星星', icon: CARD_ICONS.star },
   joker: { cn: '魔术师', icon: CARD_ICONS.joker }, devil: { cn: '恶魔', icon: CARD_ICONS.devil }
@@ -97,6 +100,7 @@ const RULES = {
     </ol><div class="rules-foot">点击面板外空白处、右上角关闭按钮或按 Esc 返回对局。</div>`,
   card: `
     <ol>
+      <li>牌库由 6 张太阳、6 张月亮、6 张星星和 2 张魔术师组成；每小轮随机用 1 张恶魔替换其中 1 张普通图案牌。</li>
       <li>每轮会指定太阳、月亮或星星为目标牌；魔术师可以代替目标牌。</li>
       <li>轮到你时暗着打出 1–3 张牌，并默认宣称它们都是目标牌。恶魔只能单独打出。</li>
       <li>下家可以直接继续出牌，也可以质疑上家；不再需要单独点击“相信上家”。</li>
@@ -238,31 +242,37 @@ function renderCenter() {
   }
 }
 
-function renderFlow() {
-  if (!state || !state.gameMode) return;
-  const current = state.players[state.turnIndex];
-  let step = '01';
-  let title = '等待行动';
-  let detail = current ? `${current.name} 正在决定下一步` : '同步对局状态';
-  if (elements.rouletteOverlay.classList.contains('open')) {
-    step = '03'; title = '轮盘判定中'; detail = elements.rouletteName.textContent || '正在扣动扳机';
-  } else if (state.gameOver) {
-    step = '04'; title = '本局已结算'; detail = '查看排行榜，全部玩家准备后进入下一局';
-  } else if (current && current.id === myId) {
-    step = '02'; title = '轮到你行动';
-    detail = state.gameMode === 'dice' ? (state.currentBid ? '提高报价，或质疑当前报价' : '请选择数量与点数开始报价') : (state.lastPlay ? '继续出牌，或质疑上家' : '选择 1–3 张牌暗出');
-  } else if ((state.gameMode === 'dice' && state.currentBid) || (state.gameMode === 'card' && state.lastPlay)) {
-    step = '02'; title = '等待下一步'; detail = state.gameMode === 'dice' ? `当前报价 ${state.currentBid[0]} 个 ${state.currentBid[1]}` : `上家暗出 ${state.lastPlay.count} 张牌`;
+function renderLastPlayPanel() {
+  const isCardMode = Boolean(state && state.gameMode === 'card');
+  elements.lastPlayPanel.hidden = !isCardMode;
+  if (!isCardMode) { lastPlaySignature = ''; return; }
+
+  const reveal = lastCardReveal;
+  const lastPlay = state.lastPlay;
+  const player = !reveal && lastPlay ? state.players[lastPlay.playerIdx] : null;
+  const count = reveal ? reveal.cards.length : lastPlay ? lastPlay.count : 0;
+  const playerName = reveal ? reveal.playerName : player ? player.name : '';
+  const signature = reveal ? `reveal:${reveal.id}:${reveal.cards.join(',')}` : `hidden:${state.roundNumber}:${lastPlay ? `${lastPlay.playerIdx}:${count}` : 'empty'}`;
+  if (signature === lastPlaySignature) return;
+
+  elements.lastPlayPanel.classList.toggle('revealed', Boolean(reveal));
+  elements.lastPlayLabel.textContent = reveal ? '质疑揭牌' : '上一手';
+  elements.lastPlaySummary.textContent = count ? `${playerName || '上家'}打出 ${count} 张` : '本轮等待首位玩家出牌';
+  elements.lastPlayCards.setAttribute('aria-label', reveal ? `真实牌面：${reveal.cards.map((card) => CARD_META[card]?.cn || card).join('、')}` : count ? `${count} 张未揭示卡牌` : '本轮尚未出牌');
+  elements.lastPlayCards.innerHTML = Array.from({ length: count }, (_, index) => {
+    const card = reveal ? reveal.cards[index] : null;
+    const meta = card ? CARD_META[card] : null;
+    return `<span class="played-card${card === 'devil' ? ' devil' : ''}" style="--card-index:${index}"><span class="played-card-inner"><span class="played-card-side played-card-back">${CARD_BACK_MARK}</span><span class="played-card-side played-card-face">${meta ? `${meta.icon}<small>${meta.cn}</small>` : ''}</span></span></span>`;
+  }).join('');
+  lastPlaySignature = signature;
+
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reveal) window.requestAnimationFrame(() => {
+    elements.lastPlayCards.querySelectorAll('.played-card').forEach((card) => card.classList.add('is-revealed'));
+  });
+  if (!reducedMotion && window.anime && typeof window.anime.animate === 'function') {
+    window.anime.animate(elements.lastPlayPanel, { opacity:[0.7,1], y:[-5,0], duration:420, ease:'out(4)' });
   }
-  elements.flowIndex.textContent = step;
-  elements.flowTitle.textContent = title;
-  elements.flowDetail.textContent = detail;
-  elements.flowBanner.dataset.step = step;
-  const signature = `${step}:${title}:${detail}`;
-  if (signature !== lastFlowSignature && window.anime && typeof window.anime.animate === 'function' && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    window.anime.animate(elements.flowBanner, { opacity:[0.72,1], x:[-4,0], duration:340, ease:'out(3)' });
-  }
-  lastFlowSignature = signature;
 }
 
 function renderPlayHistory() {
@@ -387,7 +397,7 @@ function updateControls() {
 }
 
 function renderAll() {
-  showAppropriateScreen(); renderLobbySeats(); renderSeats(); renderCenter(); renderFlow(); renderPlayHistory(); renderMyArea(); updateControls(); updateReadyUi();
+  showAppropriateScreen(); renderLobbySeats(); renderSeats(); renderCenter(); renderLastPlayPanel(); renderPlayHistory(); renderMyArea(); updateControls(); updateReadyUi();
 }
 
 function syncModalInert() {
@@ -494,7 +504,14 @@ function animateRoulette(data) {
 
 function playNextRoulette() {
   const data = rouletteQueue.shift();
-  if (!data) { rouletteAnimating = false; return; }
+  if (!data) {
+    rouletteAnimating = false;
+    if (lastCardReveal) {
+      if (cardRevealTimer) window.clearTimeout(cardRevealTimer);
+      cardRevealTimer = window.setTimeout(() => { lastCardReveal = null; lastPlaySignature = ''; renderLastPlayPanel(); }, 5000);
+    }
+    return;
+  }
   rouletteAnimating = true;
   updateControls();
   const seat = elements.seats.querySelector(`[data-player-id="${cssEscape(data.victimId)}"]`);
@@ -508,12 +525,6 @@ function playNextRoulette() {
   elements.rouletteOverlay.setAttribute('aria-hidden', 'false');
   document.documentElement.classList.add('roulette-active');
   elements.rouletteCylinder.style.transform = 'rotate(0turn)';
-  if (elements.flowBanner) {
-    elements.flowIndex.textContent = '03';
-    elements.flowTitle.textContent = '轮盘判定中';
-    elements.flowDetail.textContent = `全员同步观看 · ${data.victimName} 正在接受惩罚`;
-    elements.flowBanner.dataset.step = '03';
-  }
   const spinStart = reducedMotion ? ROULETTE_TIMING.reducedSpinStart : ROULETTE_TIMING.spinStart;
   const lockDelay = reducedMotion ? ROULETTE_TIMING.reducedLock : ROULETTE_TIMING.lock;
   const revealDelay = reducedMotion ? ROULETTE_TIMING.reducedReveal : ROULETTE_TIMING.reveal;
@@ -564,7 +575,6 @@ function playNextRoulette() {
     elements.rouletteOverlay.classList.remove('open', 'shot', 'safe', 'phase-load', 'phase-spin', 'phase-trigger');
     elements.rouletteOverlay.setAttribute('aria-hidden', 'true');
     document.documentElement.classList.remove('roulette-active');
-    renderFlow();
     rouletteAnimating = false;
     updateControls();
     playNextRoulette();
@@ -626,6 +636,9 @@ socket.on('state', (nextState) => {
 });
 socket.on('gameStarted', (data) => {
   lastResults = null;
+  lastCardReveal = null;
+  lastPlaySignature = '';
+  if (cardRevealTimer) window.clearTimeout(cardRevealTimer);
   elements.log.replaceChildren();
   elements.roundReveal.classList.remove('show');
   elements.roundReveal.replaceChildren();
@@ -666,6 +679,11 @@ socket.on('newCardRound', (data) => {
 socket.on('revealCards', (data) => {
   const list = (data.cards || []).map((card) => CARD_META[card] ? CARD_META[card].cn : card).join('、');
   const player = state && state.players[data.playerIdx];
+  lastCardReveal = { id: `${Date.now()}-${data.playerIdx}`, cards: (data.cards || []).slice(), playerName: data.playerName || (player && player.name) || '上家' };
+  lastPlaySignature = '';
+  renderLastPlayPanel();
+  if (cardRevealTimer) window.clearTimeout(cardRevealTimer);
+  cardRevealTimer = null;
   log(`${player ? player.name : '上家'} 打出：${list}`, 'sys');
 });
 socket.on('msg', (text) => {

@@ -3,7 +3,7 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { checkDiceBid, classifyDiceHand, rerollDice, validateBidTransition, createRevolver, pullRevolver, revolverPublicState, aliveTurnIndex, validateCardSelection } = require('./game-logic');
+const { checkDiceBid, classifyDiceHand, rerollDice, validateBidTransition, createRevolver, pullRevolver, revolverPublicState, aliveTurnIndex, validateCardSelection, buildCardDeck } = require('./game-logic');
 
 const app = express();
 const server = http.createServer(app);
@@ -87,15 +87,6 @@ function ensureAliveTurn(state) {
   if (next >= 0) state.turnIndex = next;
 }
 
-function buildDeck() {
-  const deck=[];
-  for (let i=0;i<6;i+=1) deck.push('sun','moon','star');
-  deck.push('joker','joker','devil','devil');
-  for (let i=deck.length-1;i>0;i-=1) { const j=Math.floor(Math.random()*(i+1)); [deck[i],deck[j]]=[deck[j],deck[i]]; }
-  return deck;
-}
-const generateCardHand = () => buildDeck().slice(0,5);
-
 function resetPlayers(state) {
   state.eliminationCounter=0;
   state.playHistory=[]; state.roundNumber=0; state.readyPlayerIds=[];
@@ -143,7 +134,11 @@ function startDiceRound(state,reason='start') {
 
 function startCardRound(state) {
   state.roundNumber+=1; state.targetCard=CARD_TYPES[Math.floor(Math.random()*CARD_TYPES.length)]; state.lastPlay=null; state.currentBid=null;
-  state.players.forEach(p => { if(p.alive) p.cards=generateCardHand(); });
+  const deck=buildCardDeck(); let cursor=0;
+  state.players.forEach(p => {
+    if(!p.alive){p.cards=[];return;}
+    p.cards=deck.slice(cursor,cursor+5); cursor+=5;
+  });
   roomEmit(state,'newCardRound',{target:state.targetCard});
   state.players.forEach(p => { if(p.alive) { const s=privateSocket(p); if(s) s.emit('myCards',p.cards); } });
 }
@@ -289,7 +284,7 @@ io.on('connection',socket=>{
     const state=roomFor(socket); if(!state||state.gameMode!=='card'||state.gameOver||!state.lastPlay) return;
     const i=state.players.findIndex(p=>p.id===socket.data.playerId); if(i<0||i!==state.turnIndex||!state.players[i].alive) return;
     const doubter=state.players[i], last=state.lastPlay, lastPlayer=state.players[last.playerIdx]; doubter.stats.doubts+=1;
-    roomEmit(state,'revealCards',{playerIdx:last.playerIdx,cards:last.cards}); const check=checkCardPlay(last.cards,state.targetCard);
+    roomEmit(state,'revealCards',{playerIdx:last.playerIdx,playerName:lastPlayer.name,cards:last.cards}); const check=checkCardPlay(last.cards,state.targetCard);
     const historyEntry=state.playHistory.find(entry=>entry.id===last.historyId); if(historyEntry){historyEntry.cards=last.cards.slice();historyEntry.outcome=check.valid?'true':'lie';}
     if(check.valid){
       doubter.stats.failedDoubts+=1;

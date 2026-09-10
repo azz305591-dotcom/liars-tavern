@@ -61,10 +61,9 @@
         </div>
       </header>
 
-      <section class="flow-banner" id="flowBanner" aria-live="polite">
-        <span class="flow-index" id="flowIndex">01</span>
-        <div><strong id="flowTitle">等待对局</strong><span id="flowDetail">创建或加入房间后开始</span></div>
-        <div class="flow-progress" aria-hidden="true"><i></i><i></i><i></i></div>
+      <section class="last-play-panel" id="lastPlayPanel" aria-live="polite" hidden>
+        <div class="last-play-copy"><span id="lastPlayLabel">上一手</span><strong id="lastPlaySummary">等待出牌</strong></div>
+        <div class="last-play-cards" id="lastPlayCards" aria-label="本轮尚未出牌"></div>
       </section>
 
       <main class="game-layout">

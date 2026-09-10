@@ -102,3 +102,59 @@ button,input,select { font:inherit; } button:focus-visible,input:focus-visible,s
   .roulette-mechanism .roulette-cylinder { transition:transform .45s ease-out; }
   .roulette-overlay.shot::before { opacity:.3; }
 }
+
+/* Card mode: the latest hand replaces the former process banner. */
+.last-play-panel { display:flex; align-items:center; justify-content:space-between; gap:18px; min-height:76px; margin-top:12px; padding:10px 14px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); background:rgba(248,250,247,.66); }
+.last-play-copy { display:grid; flex:0 0 auto; gap:3px; }
+.last-play-copy span { color:var(--muted); font-size:9px; }
+.last-play-copy strong { color:var(--ink); font-size:11px; font-weight:600; }
+.last-play-cards { display:flex; flex:1; align-items:center; justify-content:center; gap:7px; min-width:0; min-height:56px; perspective:700px; }
+.played-card { position:relative; width:40px; height:54px; flex:0 0 40px; perspective:700px; }
+.played-card-inner { position:absolute; inset:0; transform-style:preserve-3d; transition:transform .72s cubic-bezier(.16,1,.3,1); transition-delay:calc(var(--card-index) * 90ms); }
+.played-card.is-revealed .played-card-inner { transform:rotateY(180deg); }
+.played-card-side { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; overflow:hidden; border:1px solid #aeb8b0; border-radius:6px; -webkit-backface-visibility:hidden; backface-visibility:hidden; }
+.played-card-side .card-symbol { width:20px; height:20px; }
+.played-card-back { color:#dfe7e1; border-color:#39493f; background:#44554a; }
+.played-card-back::before,.played-card-back::after { content:""; position:absolute; inset:5px; border:1px solid rgba(235,241,236,.42); border-radius:3px; }
+.played-card-back::after { inset:8px; border-color:rgba(235,241,236,.18); }
+.played-card-face { color:var(--ink); background:#fff; transform:rotateY(180deg); }
+.played-card-face small { font-size:7px; }
+.played-card.devil .played-card-face { color:#8f302a; border-color:#bd8c88; background:#fbf4f3; }
+.last-play-panel.revealed { background:#f6f8f5; }
+
+/* Flat six-chamber geometry based on the supplied reference. */
+.roulette-overlay { background:rgba(15,18,16,.82); }
+.roulette-stage { color:#28302b; border-color:#c8ceca; background:#f4f5f2; box-shadow:none; }
+.roulette-context { color:#68736b; }
+.roulette-mechanism { filter:none; }
+.strike-index::before { background:#3e4753; box-shadow:none; }
+.strike-index i { border-color:#3e4753; }
+.roulette-mechanism .roulette-cylinder { border:0; background:#3e4753; box-shadow:none; }
+.roulette-mechanism .roulette-cylinder::before { display:none; }
+.roulette-mechanism .roulette-cylinder>i { border:0; background:#f4f5f2; box-shadow:none; }
+.roulette-mechanism .roulette-cylinder>i.loaded { border:0; background:#b7352f; box-shadow:none; }
+.roulette-mechanism .roulette-cylinder>b { left:91px; top:91px; width:18px; height:18px; border:0; background:#f4f5f2; box-shadow:none; }
+.roulette-mechanism .roulette-cylinder>b::before,.roulette-mechanism .roulette-cylinder>b::after { content:none; }
+.chamber-readout { color:#68736b; }
+.chamber-readout span,.chamber-readout span:first-child { padding:2px 5px; border:0; color:#68736b; background:transparent; }
+.chamber-readout span:first-child { color:#9b342f; }
+.roulette-name { color:#28302b; font-weight:600; }
+.roulette-result { color:#68736b; }
+.roulette-timeline i { background:#d5dad6; }
+.phase-load .roulette-timeline i:first-child,.phase-spin .roulette-timeline i:nth-child(-n+2),.phase-trigger .roulette-timeline i,.roulette-overlay.shot .roulette-timeline i,.roulette-overlay.safe .roulette-timeline i { background:#3e4753; }
+.phase-spin .roulette-cylinder { filter:none; }
+.roulette-overlay.shot .roulette-stage { color:#281f1e; border-color:#b7352f; background:#f4f5f2; }
+.roulette-overlay.shot .roulette-result { color:#b7352f; }
+.roulette-overlay.safe .roulette-stage { border-color:#91a298; background:#f4f5f2; }
+.roulette-overlay.safe .roulette-result { color:#42694f; }
+.roulette-overlay.shot .roulette-cylinder>i.loaded { background:#d51f17; box-shadow:none; }
+
+@media (max-width:520px) {
+  .last-play-panel { gap:10px; min-height:68px; padding:8px 9px; }
+  .last-play-copy { max-width:42%; }
+  .last-play-copy strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .last-play-cards { gap:5px; min-height:50px; }
+  .played-card { width:36px; height:48px; flex-basis:36px; }
+  .played-card-side .card-symbol { width:18px; height:18px; }
+  .roulette-mechanism .roulette-cylinder>b { left:77px; top:77px; width:16px; height:16px; }
+}
