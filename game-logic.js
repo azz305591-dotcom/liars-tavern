@@ -2,6 +2,14 @@
 
 const DICE_PER_HAND = 5;
 const REVOLVER_CHAMBERS = 6;
+const QUICK_MESSAGES = Object.freeze([
+  '开我啊',
+  '你开他准没错！',
+  '我说的是真的',
+  '这把稳了',
+  '别急，再想想',
+  '😏', '🤨', '😂', '😈', '💀'
+]);
 
 function assertFace(face) {
   if (!Number.isInteger(face) || face < 1 || face > 6) {
@@ -164,6 +172,13 @@ function validateCardSelection(cards) {
   return { valid: true, reason: '' };
 }
 
+function validateQuickMessage(value) {
+  const text = typeof value === 'string' ? value.trim() : '';
+  return QUICK_MESSAGES.includes(text)
+    ? { valid: true, text, reason: '' }
+    : { valid: false, text: '', reason: '请选择快捷语言列表中的内容' };
+}
+
 function buildCardDeck(random = Math.random) {
   const deck = [];
   for (let index = 0; index < 6; index += 1) deck.push('sun', 'star', 'moon');
@@ -262,6 +277,7 @@ function validateBidTransition(previousBid, nextBid, onesWild = true) {
 module.exports = {
   DICE_PER_HAND,
   REVOLVER_CHAMBERS,
+  QUICK_MESSAGES,
   classifyDiceHand,
   getHandContribution,
   countBidDice,
@@ -273,6 +289,7 @@ module.exports = {
   revolverPublicState,
   aliveTurnIndex,
   validateCardSelection,
+  validateQuickMessage,
   buildCardDeck,
   validateBidTransition
 };

@@ -14,6 +14,7 @@ const {
   revolverPublicState,
   aliveTurnIndex,
   validateCardSelection,
+  validateQuickMessage,
   buildCardDeck,
   validateBidTransition
 } = require('../game-logic');
@@ -72,6 +73,13 @@ test('恶魔牌必须单出，服务端拒绝任何混出组合', () => {
   assert.equal(validateCardSelection(['moon', 'devil', 'joker']).valid, false);
   assert.match(validateCardSelection(['devil', 'star']).reason, /不能与其他牌混出/);
   assert.equal(validateCardSelection(['sun', 'moon', 'star']).valid, true);
+});
+
+test('快捷语言只允许服务端固定列表中的短句与表情', () => {
+  assert.deepEqual(validateQuickMessage(' 开我啊 '), { valid: true, text: '开我啊', reason: '' });
+  assert.equal(validateQuickMessage('😈').valid, true);
+  assert.equal(validateQuickMessage('<script>alert(1)</script>').valid, false);
+  assert.match(validateQuickMessage('自定义文本').reason, /快捷语言列表/);
 });
 
 test('卡牌小轮使用 6/6/6/2 基础牌库并随机替换一张普通牌为恶魔', () => {

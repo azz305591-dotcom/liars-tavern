@@ -3,7 +3,7 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { checkDiceBid, classifyDiceHand, rerollDice, validateBidTransition, createRevolver, pullRevolver, revolverPublicState, aliveTurnIndex, validateCardSelection, buildCardDeck } = require('./game-logic');
+const { checkDiceBid, classifyDiceHand, rerollDice, validateBidTransition, createRevolver, pullRevolver, revolverPublicState, aliveTurnIndex, validateCardSelection, buildCardDeck, validateQuickMessage } = require('./game-logic');
 
 const app = express();
 const server = http.createServer(app);
@@ -18,7 +18,7 @@ const disconnectTimers = new Map();
 const emptyStats = () => ({ bids:0, doubts:0, successfulDoubts:0, failedDoubts:0, roulettePulls:0, cardsPlayed:0 });
 
 function makeRoom(code) {
-  return { roomCode:code, hostId:null, players:[], gameMode:null, currentBid:null, onesWild:true, lastBidAction:null, turnIndex:0, gameOver:false, finalResults:null, targetCard:null, lastPlay:null, playHistory:[], roundNumber:0, readyPlayerIds:[], eliminationCounter:0 };
+  return { roomCode:code, hostId:null, players:[], gameMode:null, currentBid:null, onesWild:true, lastBidAction:null, turnIndex:0, turnStartedAt:null, gameOver:false, finalResults:null, targetCard:null, lastPlay:null, playHistory:[], roundNumber:0, readyPlayerIds:[], eliminationCounter:0 };
 }
 
 function firstOpenSeat(state) {
@@ -40,12 +40,12 @@ function roomEmit(state, event, payload) { io.to(channel(state)).emit(event, pay
 function publicState(state) {
   return {
     roomCode:state.roomCode, hostId:state.hostId, gameMode:state.gameMode, currentBid:state.currentBid,
-    onesWild:state.onesWild, lastBidAction:state.lastBidAction, turnIndex:state.turnIndex,
+    onesWild:state.onesWild, lastBidAction:state.lastBidAction, turnIndex:state.turnIndex, turnStartedAt:state.turnStartedAt,
     gameOver:state.gameOver, finalResults:state.finalResults, targetCard:state.targetCard, roundNumber:state.roundNumber,
     lastPlay:state.lastPlay ? { playerIdx:state.lastPlay.playerIdx, count:state.lastPlay.cards.length } : null,
     playHistory:state.playHistory.slice(-16).map(entry => ({ ...entry, cards:entry.cards ? entry.cards.slice() : null })),
     readyPlayerIds:state.readyPlayerIds.slice(),
-    players:state.players.map(p => ({ id:p.id, name:p.name, seatIndex:p.seatIndex, alive:p.alive, connected:p.connected, diceCount:p.dice.length, cardCount:p.cards.length, revolver:revolverPublicState(p.revolver) }))
+    players:state.players.map(p => ({ id:p.id, name:p.name, seatIndex:p.seatIndex, alive:p.alive, connected:p.connected, diceCount:p.dice.length, cardCount:p.cards.length, revolver:revolverPublicState(p.revolver), quickMessage:p.quickMessage ? { id:p.quickMessage.id, text:p.quickMessage.text, expiresAt:p.quickMessage.expiresAt } : null }))
   };
 }
 
@@ -78,19 +78,19 @@ function prevAliveIdx(state, from) {
 function nextTurn(state) {
   if (state.gameOver || activeCount(state) <= 1) return;
   const next = nextAliveIdx(state, state.turnIndex);
-  if (next >= 0) state.turnIndex = next;
+  if (next >= 0) { state.turnIndex = next; state.turnStartedAt=Date.now(); }
 }
 
 function ensureAliveTurn(state) {
   if (state.gameOver || activeCount(state) <= 1) return;
   const next = aliveTurnIndex(state.players, state.turnIndex);
-  if (next >= 0) state.turnIndex = next;
+  if (next >= 0 && next!==state.turnIndex) { state.turnIndex = next; state.turnStartedAt=Date.now(); }
 }
 
 function resetPlayers(state) {
   state.eliminationCounter=0;
   state.playHistory=[]; state.roundNumber=0; state.readyPlayerIds=[];
-  state.players.forEach(p => { p.alive=true; p.dice=[]; p.cards=[]; p.revolver=createRevolver(); p.eliminatedAt=null; p.stats=emptyStats(); });
+  state.players.forEach(p => { p.alive=true; p.dice=[]; p.cards=[]; p.revolver=createRevolver(); p.eliminatedAt=null; p.stats=emptyStats(); p.quickMessage=null; });
 }
 
 function rankings(state) {
@@ -133,7 +133,7 @@ function startDiceRound(state,reason='start') {
 }
 
 function startCardRound(state) {
-  state.roundNumber+=1; state.targetCard=CARD_TYPES[Math.floor(Math.random()*CARD_TYPES.length)]; state.lastPlay=null; state.currentBid=null;
+  state.roundNumber+=1; state.targetCard=CARD_TYPES[Math.floor(Math.random()*CARD_TYPES.length)]; state.lastPlay=null; state.currentBid=null; state.turnStartedAt=Date.now();
   const deck=buildCardDeck(); let cursor=0;
   state.players.forEach(p => {
     if(!p.alive){p.cards=[];return;}
@@ -151,8 +151,8 @@ function checkCardPlay(cards,target) {
 }
 
 function resetLobby(state) {
-  Object.assign(state,{gameMode:null,currentBid:null,onesWild:true,lastBidAction:null,turnIndex:0,gameOver:false,finalResults:null,targetCard:null,lastPlay:null,playHistory:[],roundNumber:0,readyPlayerIds:[]});
-  state.players.forEach(p=>{p.alive=true;p.dice=[];p.cards=[];p.revolver=createRevolver();});
+  Object.assign(state,{gameMode:null,currentBid:null,onesWild:true,lastBidAction:null,turnIndex:0,turnStartedAt:null,gameOver:false,finalResults:null,targetCard:null,lastPlay:null,playHistory:[],roundNumber:0,readyPlayerIds:[]});
+  state.players.forEach(p=>{p.alive=true;p.dice=[];p.cards=[];p.revolver=createRevolver();p.quickMessage=null;});
 }
 
 function leaveCurrent(socket,notify=true) {
@@ -162,10 +162,11 @@ function leaveCurrent(socket,notify=true) {
   socket.leave(channel(state));
   socket.data.roomCode=null; socket.data.playerId=null;
   if(index<0) return;
-  const player=state.players[index];
+  const player=state.players[index]; const wasCurrent=state.turnIndex===index;
   state.players.splice(index,1);
   if(state.turnIndex>index) state.turnIndex-=1;
   if(state.turnIndex>=state.players.length) state.turnIndex=0;
+  if(wasCurrent&&state.gameMode&&!state.gameOver) state.turnStartedAt=Date.now();
   if(state.lastPlay) {
     if(state.lastPlay.playerIdx===index) state.lastPlay=null;
     else if(state.lastPlay.playerIdx>index) state.lastPlay.playerIdx-=1;
@@ -188,7 +189,7 @@ function addOrReconnect(socket,state,name,deviceId) {
   else {
     if(state.gameMode) return {ok:false,message:'该房间正在对局中。你可以创建新房间，或等待本局结束。'};
     if(state.players.length>=MAX_PLAYER) return {ok:false,message:'房间已满，最多 4 人。'};
-    player={id:cleanId,socketId:socket.id,name:cleanName,seatIndex:firstOpenSeat(state),dice:[],cards:[],revolver:createRevolver(),alive:true,connected:true,eliminatedAt:null,stats:emptyStats()};
+    player={id:cleanId,socketId:socket.id,name:cleanName,seatIndex:firstOpenSeat(state),dice:[],cards:[],revolver:createRevolver(),alive:true,connected:true,eliminatedAt:null,stats:emptyStats(),quickMessage:null};
     state.players.push(player);
   }
   socket.join(channel(state)); socket.data.roomCode=state.roomCode; socket.data.playerId=player.id;
@@ -222,7 +223,7 @@ io.on('connection',socket=>{
     if(!['dice','card'].includes(mode)||state.gameMode) return;
     if(state.players.length<2) { socket.emit('msg','至少 2 人才能开局。'); return; }
     state.players.sort((a,b)=>a.seatIndex-b.seatIndex);
-    resetPlayers(state); state.gameMode=mode;
+    resetPlayers(state); state.gameMode=mode; state.turnStartedAt=Date.now();
     if(mode==='dice') startDiceRound(state,'start'); else startCardRound(state);
     roomEmit(state,'gameStarted',{mode}); roomEmit(state,'msg',mode==='dice'?'骰子模式开始。':'卡牌模式开始。'); emitState(state);
   });
@@ -307,6 +308,21 @@ io.on('connection',socket=>{
     const connected=state.players.filter(p=>p.connected);
     if(connected.length&&connected.every(p=>state.readyPlayerIds.includes(p.id))){resetLobby(state);roomEmit(state,'returnedToLobby');roomEmit(state,'msg','所有玩家已准备，可以开始下一局。');emitState(state);return;}
     roomEmit(state,'msg',`${player.name}${readyIndex>=0?'取消了准备':'已准备下一局'}。`); emitState(state);
+  });
+
+  socket.on('sendQuickMessage',value=>{
+    const state=roomFor(socket); if(!state||!state.gameMode)return;
+    const player=state.players.find(p=>p.id===socket.data.playerId); if(!player||!player.connected)return;
+    const result=validateQuickMessage(value);
+    if(!result.valid){socket.emit('quickMessageResult',result);return;}
+    const id=`${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
+    player.quickMessage={id,text:result.text,expiresAt:Date.now()+30000};
+    socket.emit('quickMessageResult',{valid:true,text:result.text}); emitState(state);
+    setTimeout(()=>{
+      const current=rooms.get(state.roomCode); const sender=current&&current.players.find(p=>p.id===player.id);
+      if(!sender||!sender.quickMessage||sender.quickMessage.id!==id)return;
+      sender.quickMessage=null; emitState(current);
+    },30000);
   });
   socket.on('leaveRoom',()=>{leaveCurrent(socket,true);socket.emit('left');});
   socket.on('disconnect',()=>{

@@ -154,16 +154,20 @@
       <div class="roulette-timeline" aria-hidden="true"><i></i><i></i><i></i></div>
     </section>
   </div>
+  <div class="quick-chat-popover" id="quickChatPopover" role="dialog" aria-label="选择快捷语言" hidden>
+    <div class="quick-chat-title">快捷语言</div>
+    <div class="quick-chat-options" id="quickChatOptions"></div>
+  </div>
   <div class="toast-layer" id="toastLayer" aria-live="assertive"></div>
   <div class="window-filter" id="windowFilter" aria-hidden="true"></div>
 
   <div class="display-settings">
-    <button class="display-settings-btn" id="appearanceBtn" type="button" aria-expanded="false" aria-controls="appearancePanel">显示设置</button>
+    <button class="display-settings-btn" id="appearanceBtn" type="button" aria-label="显示设置" aria-expanded="false" aria-controls="appearancePanel"><span aria-hidden="true">◐</span>显示</button>
     <div class="appearance-panel" id="appearancePanel" hidden>
-      <div class="appearance-title">整页显示</div>
-      <label>页面色调 <input id="bgColorInput" type="color" value="#dfe8df" aria-label="整页色调"></label>
-      <label>色调强度 <span><input id="bgOpacityInput" type="range" min="0" max="85" value="0" aria-label="整页色调强度"> <output id="bgOpacityOutput">0%</output></span></label>
-      <label>整体明度 <span><input id="brightnessInput" type="range" min="45" max="115" value="100" aria-label="整页明度"> <output id="brightnessOutput">100%</output></span></label>
+      <div class="appearance-title">窗口显示 <small>整页同步</small></div>
+      <label class="appearance-color"><span>底色</span><input id="bgColorInput" type="color" value="#dfe8df" aria-label="窗口底色"></label>
+      <label><span>色层透明度</span><span class="range-control"><input id="bgOpacityInput" type="range" min="0" max="85" value="0" aria-label="整页色层透明度"><output id="bgOpacityOutput">0%</output></span></label>
+      <label><span>明度</span><span class="range-control"><input id="brightnessInput" type="range" min="45" max="115" value="100" aria-label="整页明度"><output id="brightnessOutput">100%</output></span></label>
       <button class="reset-display" id="resetAppearanceBtn" type="button">恢复默认</button>
     </div>
   </div>

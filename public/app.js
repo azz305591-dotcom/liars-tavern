@@ -15,6 +15,7 @@ const elements = {
   rulesBtn: $('rulesBtn'), resultsBtn: $('resultsBtn'), rulesOverlay: $('rulesOverlay'), rulesCloseBtn: $('rulesCloseBtn'), rulesTitle: $('rulesTitle'), rulesBody: $('rulesBody'),
   leaderboardOverlay: $('leaderboardOverlay'), leaderboardCloseBtn: $('leaderboardCloseBtn'), leaderboardSummary: $('leaderboardSummary'), leaderboardList: $('leaderboardList'), leaderboardLobbyBtn: $('leaderboardLobbyBtn'), readyStatus: $('readyStatus'),
   rouletteOverlay: $('rouletteOverlay'), rouletteMechanism: $('rouletteMechanism'), rouletteCylinder: $('rouletteCylinder'), rouletteEyebrow: $('rouletteEyebrow'), rouletteName: $('rouletteName'), rouletteResult: $('rouletteResult'),
+  quickChatPopover: $('quickChatPopover'), quickChatOptions: $('quickChatOptions'),
   appearanceBtn: $('appearanceBtn'), appearancePanel: $('appearancePanel'), bgColorInput: $('bgColorInput'), bgOpacityInput: $('bgOpacityInput'), bgOpacityOutput: $('bgOpacityOutput'), brightnessInput: $('brightnessInput'), brightnessOutput: $('brightnessOutput'), resetAppearanceBtn: $('resetAppearanceBtn'), leaveGameBtn: $('leaveGameBtn'),
   toastLayer: $('toastLayer')
 };
@@ -38,6 +39,8 @@ let rouletteAnimating = false;
 let lastPlaySignature = '';
 let lastCardReveal = null;
 let cardRevealTimer = null;
+let quickChatInvoker = null;
+const seenQuickMessages = new Set();
 const ROULETTE_TIMING = Object.freeze({
   spinStart: 650,
   lock: 3400,
@@ -82,6 +85,10 @@ const CARD_META = {
   joker: { cn: '魔术师', icon: CARD_ICONS.joker }, devil: { cn: '恶魔', icon: CARD_ICONS.devil }
 };
 const MODE_NAME = { dice: '骰子模式', card: '卡牌模式' };
+const QUICK_CHAT_OPTIONS = [
+  '开我啊', '你开他准没错！', '我说的是真的', '这把稳了', '别急，再想想',
+  '😏', '🤨', '😂', '😈', '💀'
+];
 const SEAT_LAYOUTS = {
   1: [{ left:50, top:14 }],
   2: [{ left:50, top:14 }, { left:50, top:86 }],
@@ -116,6 +123,7 @@ for (let quantity = 1; quantity <= 30; quantity += 1) {
   option.textContent = quantity;
   elements.cntSel.appendChild(option);
 }
+elements.quickChatOptions.innerHTML = QUICK_CHAT_OPTIONS.map((message) => `<button class="quick-chat-option${message.length <= 2 ? ' emoji' : ''}" type="button" data-quick-message="${escapeHtml(message)}">${escapeHtml(message)}</button>`).join('');
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
@@ -183,6 +191,7 @@ function renderLobbySeats() {
 }
 
 function renderSeats() {
+  closeQuickChatMenu(false);
   elements.seats.replaceChildren();
   if (!state) return;
   elements.roomInfo.textContent = `房间 ${state.roomCode || '公共房'} · ${state.players.length}/4`;
@@ -190,6 +199,7 @@ function renderSeats() {
     const seat = document.createElement('div');
     seat.className = 'seat';
     seat.dataset.playerId = player.id;
+    seat.dataset.tableSeat = String(Number.isInteger(player.seatIndex) ? player.seatIndex : index);
     if (player.id === myId) seat.classList.add('my-seat');
     if (!player.alive) seat.classList.add('dead');
     if (state.turnIndex === index && !state.gameOver) seat.classList.add('active');
@@ -204,9 +214,56 @@ function renderSeats() {
     const held = state.gameMode === 'card' ? `剩余 ${player.cardCount || 0} 张牌` : `持有 ${player.diceCount || 0} 颗骰子`;
     const remaining = player.revolver ? player.revolver.remaining : 6;
     const chamber = `<div class="chamber-count" aria-label="弹巢剩余 ${remaining} 格"><span class="chamber-dot"></span>弹巢 ${remaining}/6</div>`;
-    seat.innerHTML = `<div class="sname">${escapeHtml(player.name)}${player.id === myId ? '（我）' : ''}<small>${player.alive ? '存活' : '出局'}</small></div><div class="sdice">${held}</div>${chamber}${status}`;
+    const quickMessage = player.quickMessage && player.quickMessage.expiresAt > Date.now() ? player.quickMessage : null;
+    const isFresh = quickMessage && !seenQuickMessages.has(quickMessage.id);
+    const bubble = quickMessage ? `<div class="quick-bubble${isFresh ? ' fresh' : ''}"${isFresh ? ' role="status"' : ''}>${escapeHtml(quickMessage.text)}</div>` : '';
+    const trigger = player.id === myId ? '<button class="quick-chat-trigger" type="button" aria-haspopup="dialog" aria-expanded="false">快捷语</button>' : '';
+    const turnTimer = state.turnIndex === index && !state.gameOver ? `<div class="turn-elapsed" data-turn-timer>${formatTurnElapsed()}</div>` : '';
+    seat.innerHTML = `${bubble}<div class="sname">${escapeHtml(player.name)}${player.id === myId ? '（我）' : ''}<small>${player.alive ? '存活' : '出局'}</small></div><div class="sdice">${held}</div>${chamber}${status}${turnTimer}${trigger}`;
+    if (quickMessage) {
+      seenQuickMessages.add(quickMessage.id);
+      if (seenQuickMessages.size > 80) seenQuickMessages.clear();
+    }
+    const quickChatButton = seat.querySelector('.quick-chat-trigger');
+    if (quickChatButton) quickChatButton.addEventListener('click', (event) => { event.stopPropagation(); openQuickChatMenu(quickChatButton); });
     elements.seats.appendChild(seat);
   });
+}
+
+function formatTurnElapsed() {
+  const elapsed = state && state.turnStartedAt ? Math.max(0, Math.floor((Date.now() - state.turnStartedAt) / 1000)) : 0;
+  const minutes = String(Math.floor(elapsed / 60)).padStart(2, '0');
+  const seconds = String(elapsed % 60).padStart(2, '0');
+  return `本回合 ${minutes}:${seconds}`;
+}
+
+function updateTurnTimer() {
+  const timer = elements.seats.querySelector('[data-turn-timer]');
+  if (timer) timer.textContent = formatTurnElapsed();
+}
+
+function openQuickChatMenu(button) {
+  quickChatInvoker = button;
+  elements.quickChatPopover.hidden = false;
+  button.setAttribute('aria-expanded', 'true');
+  const rect = button.getBoundingClientRect();
+  const popoverRect = elements.quickChatPopover.getBoundingClientRect();
+  const left = Math.max(8, Math.min(window.innerWidth - popoverRect.width - 8, rect.left + rect.width / 2 - popoverRect.width / 2));
+  const below = rect.bottom + 7;
+  const top = below + popoverRect.height <= window.innerHeight - 8 ? below : Math.max(8, rect.top - popoverRect.height - 7);
+  elements.quickChatPopover.style.left = `${left}px`;
+  elements.quickChatPopover.style.top = `${top}px`;
+  elements.quickChatPopover.querySelector('button')?.focus();
+}
+
+function closeQuickChatMenu(restoreFocus = true) {
+  if (!elements.quickChatPopover || elements.quickChatPopover.hidden) return;
+  elements.quickChatPopover.hidden = true;
+  if (quickChatInvoker) {
+    quickChatInvoker.setAttribute('aria-expanded', 'false');
+    if (restoreFocus && quickChatInvoker.isConnected) quickChatInvoker.focus();
+  }
+  quickChatInvoker = null;
 }
 
 function renderCenter() {
@@ -584,8 +641,13 @@ function playNextRoulette() {
 function applyAppearance() {
   const color = elements.bgColorInput.value.replace('#', '');
   const rgb = color.length === 6 ? [0, 2, 4].map((index) => parseInt(color.slice(index, index + 2), 16)) : [35, 56, 47];
-  document.documentElement.style.setProperty('--window-tint', `rgba(${rgb.join(',')},${Number(elements.bgOpacityInput.value) / 100})`);
-  document.documentElement.style.setProperty('--window-brightness', String(Number(elements.brightnessInput.value) / 100));
+  const strength = Number(elements.bgOpacityInput.value) / 100;
+  const brightness = Number(elements.brightnessInput.value);
+  const brightnessOverlay = brightness < 100
+    ? `rgba(0,0,0,${(100 - brightness) / 100})`
+    : `rgba(255,255,255,${(brightness - 100) / 100})`;
+  document.documentElement.style.setProperty('--window-color-overlay', `rgba(${rgb.join(',')},${strength})`);
+  document.documentElement.style.setProperty('--window-brightness-overlay', brightnessOverlay);
   elements.bgOpacityOutput.textContent = `${elements.bgOpacityInput.value}%`;
   elements.brightnessOutput.textContent = `${elements.brightnessInput.value}%`;
   localStorage.setItem('liars-bg-color', elements.bgColorInput.value);
@@ -671,6 +733,9 @@ socket.on('seatResult', (data) => {
   if (!data) return;
   elements.seatPickerStatus.textContent = data.message || (data.ok ? '换座成功。' : '无法换座。');
   showToast(elements.seatPickerStatus.textContent, data.ok ? 'good' : 'bad');
+});
+socket.on('quickMessageResult', (data) => {
+  showToast(data && data.valid ? '快捷语言已发送' : (data && data.reason) || '快捷语言发送失败', data && data.valid ? 'good' : 'bad');
 });
 socket.on('newCardRound', (data) => {
   const meta = CARD_META[data.target];
@@ -779,7 +844,14 @@ elements.rulesOverlay.addEventListener('click', (event) => { if (event.target ==
 elements.leaderboardCloseBtn.addEventListener('click', closeLeaderboard);
 elements.leaderboardOverlay.addEventListener('click', (event) => { if (event.target === elements.leaderboardOverlay) closeLeaderboard(); });
 elements.leaderboardLobbyBtn.addEventListener('click', () => socket.emit('toggleReady'));
+elements.quickChatOptions.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-quick-message]');
+  if (!button) return;
+  socket.emit('sendQuickMessage', button.dataset.quickMessage);
+  closeQuickChatMenu(false);
+});
 document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !elements.quickChatPopover.hidden) { closeQuickChatMenu(); return; }
   if (elements.leaderboardOverlay.classList.contains('open')) {
     trapModalFocus(event, elements.leaderboardOverlay);
     if (event.key === 'Escape') closeLeaderboard();
@@ -793,6 +865,7 @@ elements.appearanceBtn.addEventListener('click', () => {
   elements.appearanceBtn.setAttribute('aria-expanded', String(!elements.appearancePanel.hidden));
 });
 document.addEventListener('click', (event) => {
+  if (!elements.quickChatPopover.hidden && !elements.quickChatPopover.contains(event.target)) closeQuickChatMenu(false);
   if (!elements.appearancePanel.hidden && !elements.appearancePanel.contains(event.target) && event.target !== elements.appearanceBtn) {
     elements.appearancePanel.hidden = true;
     elements.appearanceBtn.setAttribute('aria-expanded', 'false');
@@ -805,3 +878,4 @@ elements.resetAppearanceBtn.addEventListener('click', () => {
   elements.bgColorInput.value = '#dfe8df'; elements.bgOpacityInput.value = '0'; elements.brightnessInput.value = '100'; applyAppearance();
 });
 restoreAppearance();
+window.setInterval(updateTurnTimer, 1000);
