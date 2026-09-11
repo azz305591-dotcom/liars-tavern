@@ -3,7 +3,7 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { checkDiceBid, classifyDiceHand, rerollDice, validateBidTransition, createRevolver, pullRevolver, createRouletteVisual, revolverPublicState, aliveTurnIndex, clockwiseAliveIndexes, validateCardSelection, buildCardDeck, validateQuickMessage } = require('./game-logic');
+const { checkDiceBid, classifyDiceHand, rerollDice, validateBidTransition, createRevolver, pullRevolver, createRouletteVisual, revolverPublicState, aliveTurnIndex, clockwiseAliveIndexes, validateCardSelection, mustChallengeEmptyHand, buildCardDeck, validateQuickMessage } = require('./game-logic');
 
 const app = express();
 const server = http.createServer(app);
@@ -43,6 +43,7 @@ function publicState(state) {
     onesWild:state.onesWild, lastBidAction:state.lastBidAction, turnIndex:state.turnIndex, turnStartedAt:state.turnStartedAt,
     gameOver:state.gameOver, finalResults:state.finalResults, targetCard:state.targetCard, roundNumber:state.roundNumber,
     lastPlay:state.lastPlay ? { playerIdx:state.lastPlay.playerIdx, count:state.lastPlay.cards.length } : null,
+    mustDoubt:state.gameMode==='card'&&mustChallengeEmptyHand(state.players,state.lastPlay,state.turnIndex),
     playHistory:state.playHistory.slice(-16).map(entry => ({ ...entry, cards:entry.cards ? entry.cards.slice() : null })),
     readyPlayerIds:state.readyPlayerIds.slice(),
     players:state.players.map(p => ({ id:p.id, name:p.name, seatIndex:p.seatIndex, alive:p.alive, connected:p.connected, diceCount:p.dice.length, cardCount:p.cards.length, revolver:revolverPublicState(p.revolver), quickMessage:p.quickMessage ? { id:p.quickMessage.id, text:p.quickMessage.text, expiresAt:p.quickMessage.expiresAt } : null }))
@@ -271,6 +272,7 @@ io.on('connection',socket=>{
   socket.on('playCards',cards=>{
     const state=roomFor(socket); if(!state||state.gameMode!=='card'||state.gameOver) return;
     const i=state.players.findIndex(p=>p.id===socket.data.playerId); if(i<0||i!==state.turnIndex||!state.players[i].alive) return;
+    if(mustChallengeEmptyHand(state.players,state.lastPlay,state.turnIndex)){socket.emit('msg','对手已出完手牌，本回合必须质疑上一手。');return;}
     const selection=validateCardSelection(cards);
     if(!selection.valid){socket.emit('msg',selection.reason);return;}
     const hand=state.players[i].cards.slice();

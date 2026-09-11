@@ -202,6 +202,14 @@ function validateCardSelection(cards) {
   return { valid: true, reason: '' };
 }
 
+function mustChallengeEmptyHand(players, lastPlay, turnIndex) {
+  if (!Array.isArray(players) || !lastPlay || !Number.isInteger(lastPlay.playerIdx)) return false;
+  if (!Number.isInteger(turnIndex) || !players[turnIndex] || !players[turnIndex].alive) return false;
+  const activePlayers = players.filter(player => player.alive !== false);
+  const lastPlayer = players[lastPlay.playerIdx];
+  return activePlayers.length === 2 && Boolean(lastPlayer?.alive) && lastPlayer.cards?.length === 0 && lastPlay.playerIdx !== turnIndex;
+}
+
 function validateQuickMessage(value) {
   const text = typeof value === 'string' ? value.trim() : '';
   return QUICK_MESSAGES.includes(text)
@@ -321,6 +329,7 @@ module.exports = {
   aliveTurnIndex,
   clockwiseAliveIndexes,
   validateCardSelection,
+  mustChallengeEmptyHand,
   validateQuickMessage,
   buildCardDeck,
   validateBidTransition

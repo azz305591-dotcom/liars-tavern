@@ -16,10 +16,25 @@ const {
   aliveTurnIndex,
   clockwiseAliveIndexes,
   validateCardSelection,
+  mustChallengeEmptyHand,
   validateQuickMessage,
   buildCardDeck,
   validateBidTransition
 } = require('../game-logic');
+
+test('双人残局中上家出完手牌后，下家必须质疑', () => {
+  const players = [
+    { alive:true, cards:[], seatIndex:0 },
+    { alive:true, cards:['moon'], seatIndex:1 },
+    { alive:false, cards:[], seatIndex:2 }
+  ];
+  assert.equal(mustChallengeEmptyHand(players, { playerIdx:0, cards:['sun'] }, 1), true);
+  players[0].cards=['star'];
+  assert.equal(mustChallengeEmptyHand(players, { playerIdx:0, cards:['sun'] }, 1), false);
+  players[0].cards=[];
+  players[2].alive=true;
+  assert.equal(mustChallengeEmptyHand(players, { playerIdx:0, cards:['sun'] }, 1), false);
+});
 
 test('识别普通骰、假豹子和真豹子', () => {
   assert.deepEqual(classifyDiceHand([2, 2, 1, 1, 1]), {

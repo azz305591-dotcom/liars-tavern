@@ -432,9 +432,10 @@ function updateControls() {
   if (state.gameMode === 'card') {
     elements.diceControls.hidden = true;
     elements.cardControls.hidden = false;
-    elements.playBtn.disabled = !myTurn || selectedCards.length === 0;
+    const mustDoubt = myTurn && state.mustDoubt;
+    elements.playBtn.disabled = !myTurn || mustDoubt || selectedCards.length === 0;
     elements.doubtCardBtn.disabled = !myTurn || !state.lastPlay;
-    elements.cardHint.textContent = myTurn && state.lastPlay ? '可继续出牌，或质疑上家的上一手。' : myTurn ? '选中 1–3 张牌后出牌，恶魔只能单出。' : '等待当前玩家行动。';
+    elements.cardHint.textContent = mustDoubt ? '对手已出完手牌，本回合必须质疑上一手。' : myTurn && state.lastPlay ? '可继续出牌，或质疑上家的上一手。' : myTurn ? '选中 1–3 张牌后出牌，恶魔只能单出。' : '等待当前玩家行动。';
     return;
   }
   elements.diceControls.hidden = false;
